@@ -1,0 +1,11 @@
+diff --git a/scripts/windows/env.sh b/scripts/windows/env.sh
+--- a/scripts/windows/env.sh
++++ b/scripts/windows/env.sh
+@@ -19,5 +19,5 @@
+ set -euo pipefail
+ if [ "${MSYSTEM:-}" != "UCRT64" ]; then echo "need MSYS2 UCRT64 shell (MSYSTEM=UCRT64)"; exit 1; fi
+-export MSYS=winsymlinks:nativestrict
++export MSYS="${OPENFOAM_WINDOWS_MSYS_LINKS:-winsymlinks:nativestrict}"
+ 
+ OF13_ROOT="${OF13_ROOT:-/c/OF13WinNormal}"
+

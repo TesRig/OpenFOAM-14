@@ -22,28 +22,22 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::basicLagrangianThermo
+    Foam::BasicLagrangianThermo
 
 Description
-    Base-class for Lagrangian fluid and solid thermodynamic models.
-
-    The design of Lagrangian thermodynamic models is the same as that for
-    finite-volume. See basicThermo for an explanation of how the interface
-    class, and the implementation and composite sub-classes fit together.
-
-See also
-    Foam::basicThermo
+    Lagrangian thermodynamic model implementation and storage of energy.
+    Provides overloads of the functions defined in the basic Lagrangian
+    thermodynamic type that depend on the primitive thermodynamic model.
 
 SourceFiles
-    basicLagrangianThermo.C
-    basicLagrangianThermoTemplates.C
+    BasicLagrangianThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef basicLagrangianThermo_H
-#define basicLagrangianThermo_H
+#ifndef BasicLagrangianThermo_H
+#define BasicLagrangianThermo_H
 
-#include "LagrangianFields.H"
+#include "basicLagrangianThermo.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -51,99 +45,112 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                   Class basicLagrangianThermo Declaration
+                       Class BasicThermoName Declaration
 \*---------------------------------------------------------------------------*/
 
-class basicLagrangianThermo
+TemplateName(BasicLagrangianThermo);
+
+
+/*---------------------------------------------------------------------------*\
+                          Class basicLagrangianThermo Declaration
+\*---------------------------------------------------------------------------*/
+
+template<class MixtureType, class BasicThermoType>
+class BasicLagrangianThermo
+:
+    public BasicLagrangianThermoName,
+    public physicalProperties,
+    public MixtureType,
+    public BasicThermoType
 {
 protected:
 
+    // Protected Data
+
+        //- Internal energy [J/kg]
+        LagrangianScalarDynamicField e_;
+
+
     // Protected Member Functions
 
-        //- Internal energy field boundary types
-        wordList eBoundaryTypes() const;
-
-        //- Internal energy field boundary base types
-        wordList eBoundaryBaseTypes() const;
-
-        //- Field sources types
-        template<class LagrangianFieldSourceType>
-        static HashTable<word> sourcesTypes
+        //- Return a LagrangianInternalScalarField of the given property
+        template<class Mixture, class Method, class ... Args>
+        tmp<LagrangianInternalScalarField> LagrangianInternalScalarFieldProperty
         (
-            const LagrangianScalarDynamicField& T
-        );
+            const word& psiName,
+            const dimensionSet& psiDim,
+            Mixture mixture,
+            Method psiMethod,
+            const Args& ... args
+        ) const;
+
+        //- Return a LagrangianSubScalarField of the given property
+        template<class Mixture, class Method, class ... Args>
+        tmp<LagrangianSubScalarField> LagrangianSubScalarFieldProperty
+        (
+            const LagrangianSubMesh& subMesh,
+            const word& psiName,
+            const dimensionSet& psiDim,
+            Mixture mixture,
+            Method psiMethod,
+            const Args& ... args
+        ) const;
+
+        //- Return a LagrangianSubScalarField of the given property
+        template<class Mixture, class Method, class ... Args>
+        tmp<LagrangianSubScalarField> LagrangianInjectionProperty
+        (
+            const LagrangianInjection& injection,
+            const LagrangianSubMesh& subMesh,
+            const word& psiName,
+            const dimensionSet& psiDim,
+            Mixture mixture,
+            Method psiMethod,
+            const Args& ... args
+        ) const;
 
 
 public:
 
-    // Public Classes
+    // Typedefs
 
-        //- Forward declare the implementation class
-        class implementation;
+        //- Mixture type
+        typedef MixtureType mixtureType;
 
-
-    //- Runtime type information
-    TypeName("basicLagrangianThermo");
-
-
-    //- Declare run-time constructor selection table
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        basicLagrangianThermo,
-        LagrangianMesh,
-        (const LagrangianMesh& mesh, const word& phaseName),
-        (mesh, phaseName)
-    );
+        //- Basic thermo
+        typedef BasicThermoType basicThermoType;
 
 
-    // Selectors
+    //- Disambiguate debug switch used by derivations
+    using BasicLagrangianThermoName::debug;
 
-        //- Select thermo of a given derived type
-        template<class Thermo>
-        static autoPtr<Thermo> New
+
+    // Constructors
+
+        //- Construct from mesh and phase name
+        BasicLagrangianThermo(const LagrangianMesh&, const word& phaseName);
+
+        //- Disallow default bitwise copy construction
+        BasicLagrangianThermo
         (
-            const LagrangianMesh& mesh,
-            const word& phaseName=word::null
-        );
-
-        //- Select a basic thermo
-        static autoPtr<basicLagrangianThermo> New
-        (
-            const LagrangianMesh& mesh,
-            const word& phaseName=word::null
-        );
+            const BasicLagrangianThermo<MixtureType, BasicThermoType>&
+        ) = delete;
 
 
     //- Destructor
-    virtual ~basicLagrangianThermo();
+    virtual ~BasicLagrangianThermo();
 
 
     // Member Functions
 
         //- Access the properties dictionary
-        virtual const IOdictionary& properties() const = 0;
+        virtual const IOdictionary& properties() const;
 
         //- Modify the properties dictionary
-        virtual IOdictionary& properties() = 0;
-
-        //- Access the mesh
-        virtual const LagrangianMesh& mesh() const = 0;
-
-        //- Access the phase name
-        virtual const word& phaseName() const = 0;
-
-        //- Initialise state
-        virtual void initialise() = 0;
-
-        //- Update the pressure
-        virtual void correctPressure(const LagrangianSubMesh&) = 0;
-
-        //- Update state
-        virtual void correct(const LagrangianSubMesh&) = 0;
+        virtual IOdictionary& properties();
 
         //- Return the full name of the thermodynamic model
-        virtual word thermoName() const = 0;
+        virtual word thermoName() const;
 
 
         // Molecular Properties
@@ -152,170 +159,72 @@ public:
             virtual tmp<LagrangianSubScalarField> W
             (
                 const LagrangianSubMesh&
-            ) const = 0;
-
-
-        // Thermodynamic State
-
-            //- Temperature [K]
-            virtual const LagrangianScalarDynamicField& T() const = 0;
-
-            //- Modify the Temperature [K]
-            virtual LagrangianScalarDynamicField& T() = 0;
+            ) const;
 
 
         // Thermodynamic Properties
 
-            //- Density [kg/m^3]
-            virtual const LagrangianScalarDynamicField& rho() const = 0;
-
-            //- Modify the Density [kg/m^3]
-            virtual LagrangianScalarDynamicField& rho() = 0;
+            using BasicThermoType::rho;
 
             //- Density for an injection [kg/m^3]
             virtual tmp<LagrangianSubScalarField> rho
             (
                 const LagrangianSubScalarField& T,
                 const LagrangianInjection&
-            ) const = 0;
+            ) const;
 
             //- Internal energy [J/kg]
-            virtual const LagrangianScalarDynamicField& e() const = 0;
+            virtual const LagrangianScalarDynamicField& e() const;
 
             //- Modify the internal energy [J/kg]
-            virtual LagrangianScalarDynamicField& e() = 0;
+            virtual LagrangianScalarDynamicField& e();
 
             //- Internal energy for an injection [J/kg]
             virtual tmp<LagrangianSubScalarField> e
             (
                 const LagrangianSubScalarField& T,
                 const LagrangianInjection&
-            ) const = 0;
+            ) const;
 
-            //- Heat capacity at constant volume [J/kg/K]
-            virtual const LagrangianScalarDynamicField& Cv() const = 0;
+            using BasicThermoType::Cv;
 
             //- Heat capacity at constant volume for an injection [J/kg/K]
             virtual tmp<LagrangianSubScalarField> Cv
             (
                 const LagrangianSubScalarField& T,
                 const LagrangianInjection&
-            ) const = 0;
+            ) const;
 
             //- Heat capacity at constant pressure for a sub-mesh [J/kg/K]
             virtual tmp<LagrangianSubScalarField> Cp
             (
-                const LagrangianSubMesh& subMesh
-            ) const = 0;
+                const LagrangianSubMesh&
+            ) const;
 
             //- Coefficient of thermal expansion for a sub-mesh [1/K]
             virtual tmp<LagrangianSubScalarField> alphav
             (
-                const LagrangianSubMesh& subMesh
-            ) const = 0;
+                const LagrangianSubMesh&
+            ) const;
 
 
         // Transport Properties
 
-            //- Thermal conductivity [W/m/K]
-            virtual const LagrangianScalarDynamicField& kappa() const = 0;
+            using BasicThermoType::kappa;
 
             //- Thermal conductivity for an injection [W/m/K]
             virtual tmp<LagrangianSubScalarField> kappa
             (
                 const LagrangianSubScalarField& T,
                 const LagrangianInjection&
-            ) const = 0;
-};
+            ) const;
 
 
-/*---------------------------------------------------------------------------*\
-             Class basicLagrangianThermo::implementation Declaration
-\*---------------------------------------------------------------------------*/
+        //- Read thermophysical properties dictionary
+        using BasicThermoType::read;
 
-class basicLagrangianThermo::implementation
-:
-    virtual public basicLagrangianThermo
-{
-    // Private Data
-
-        //- Reference to the mesh
-        const LagrangianMesh& mesh_;
-
-        //- Reference to the phase name
-        const word& phaseName_;
-
-
-protected:
-
-    // Protected Data
-
-        //- Temperature [K]
-        LagrangianScalarDynamicField T_;
-
-        //- Density [kg/m^3]
-        LagrangianScalarDynamicField rho_;
-
-        //- Heat capacity at constant volume [J/kg/K]
-        LagrangianScalarDynamicField Cv_;
-
-        //- Thermal conductivity [W/m/K]
-        LagrangianScalarDynamicField kappa_;
-
-
-public:
-
-    // Constructors
-
-        //- Construct from dictionary, mesh and phase name
-        implementation(const dictionary&, const LagrangianMesh&, const word&);
-
-        //- Disallow default bitwise copy construction
-        implementation(const implementation&) = delete;
-
-
-    //- Destructor
-    virtual ~implementation();
-
-
-    // Member Functions
-
-        //- Return const access to the mesh
-        virtual const LagrangianMesh& mesh() const;
-
-        //- Phase name
-        virtual const word& phaseName() const;
-
-
-        // Thermodynamic State
-
-            //- Temperature [K]
-            virtual const LagrangianScalarDynamicField& T() const;
-
-            //- Modify the Temperature [K]
-            virtual LagrangianScalarDynamicField& T();
-
-
-        // Thermodynamic Properties
-
-            //- Density [kg/m^3]
-            virtual const LagrangianScalarDynamicField& rho() const;
-
-            //- Modify the Density [kg/m^3]
-            virtual LagrangianScalarDynamicField& rho();
-
-            //- Heat capacity at constant volume [J/kg/K]
-            virtual const LagrangianScalarDynamicField& Cv() const;
-
-
-        // Transport Properties
-
-            //- Thermal conductivity [W/m/K]
-            virtual const LagrangianScalarDynamicField& kappa() const;
-
-
-        //- Read properties dictionary
-        virtual void read(const dictionary&);
+        //- Read thermophysical properties dictionary
+        virtual bool read();
 };
 
 
@@ -326,7 +235,7 @@ public:
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 #ifdef NoRepository
-    #include "basicLagrangianThermoTemplates.C"
+    #include "BasicLagrangianThermo.C"
 #endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

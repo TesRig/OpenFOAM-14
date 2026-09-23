@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2025 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2023 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,27 +22,20 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::solidThermo
+    Foam::SolidThermo
 
 Description
-    Base-class for solid thermodynamic properties.
-
-See also
-    Foam::basicThermo
+    Thermo implementation for a solid
 
 SourceFiles
-    solidThermo.C
+    SolidThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef solidThermo_H
-#define solidThermo_H
+#ifndef SolidThermo_H
+#define SolidThermo_H
 
-#include "SolidThermo.H"
-#include "pureThermo.H"
-#include "rhoThermo.H"
-#include "uniformGeometricFields.H"
-#include "fvScalarMatrix.H"
+#include "BasicThermo.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -50,181 +43,74 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                         Class solidThermo Declaration
+                        Class SolidThermo Declaration
 \*---------------------------------------------------------------------------*/
 
-class solidThermo
+template<class BaseThermo>
+class SolidThermo
 :
-    virtual public basicThermo,
-    virtual public rhoThermo
-{
-public:
-
-    // Public Classes
-
-        //- Forward declare the implementation class
-        class implementation;
-
-        //- Forward declare the composite class
-        class composite;
-
-
-    // Public Typedefs
-
-        //- The derived type
-        template<class MixtureType>
-        using DerivedThermoType =
-            SolidThermo<BasicThermo<MixtureType, composite>>;
-
-        //- The derived name
-        static word derivedThermoName()
-        {
-            return "heSolidThermo";
-        }
-
-
-    //- Runtime type information
-    TypeName("solidThermo");
-
-
-    // Declare run-time constructor selection tables
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        solidThermo,
-        fvMesh,
-        (const fvMesh& mesh, const word& phaseName),
-        (mesh, phaseName)
-    );
-
-
-    // Selectors
-
-        //- Standard selection based on fvMesh
-        static autoPtr<solidThermo> New
-        (
-            const fvMesh&,
-            const word& phaseName = word::null
-        );
-
-
-    //- Destructor
-    virtual ~solidThermo();
-
-
-    // Member Functions
-
-        //- Should the dpdt term be included in the enthalpy equation
-        virtual Switch dpdt() const = 0;
-
-        //- Return true if thermal conductivity is isotropic
-        virtual bool isotropic() const = 0;
-
-        //- Anisotropic thermal conductivity [W/m/K]
-        virtual const volVectorField& Kappa() const = 0;
-};
-
-
-/*---------------------------------------------------------------------------*\
-                 Class solidThermo::implementation Declaration
-\*---------------------------------------------------------------------------*/
-
-class solidThermo::implementation
-:
-    virtual public solidThermo
+    public BaseThermo
 {
 protected:
 
     // Protected data
 
-        // Fields
+        //- Anisotropic thermal conductivity [W/m/K]
+        volVectorField Kappa_;
 
-            //- Pressure [Pa]
-            //  Note: This value should never be used. Solid thermo should only
-            //  be instantiated with thermo models that do not depend on
-            //  pressure. This uniform field takes a value of NaN, so that if
-            //  any thermo models that do depend on pressure are used then the
-            //  code will exit.
-            uniformGeometricScalarField p_;
+
+    // Private Member Functions
+
+        //- Calculate the thermo variables
+        void calculate();
 
 
 public:
 
     // Constructors
 
-        //- Construct from dictionary, mesh and phase name
-        implementation(const dictionary&, const fvMesh&, const word&);
+        //- Construct from mesh and phase name
+        SolidThermo(const fvMesh&, const word& phaseName);
+
+        //- Disallow default bitwise copy construction
+        SolidThermo(const SolidThermo<BaseThermo>&) = delete;
 
 
     //- Destructor
-    virtual ~implementation();
+    virtual ~SolidThermo();
 
 
     // Member Functions
 
-        //- The dpdt term should not be included in the enthalpy equation
-        virtual Switch dpdt() const
+        //- Update properties
+        virtual void correct();
+
+        //- Return true if thermal conductivity is isotropic
+        virtual bool isotropic() const
         {
-            return false;
+            return BaseThermo::mixtureType::thermoType::isotropic;
         }
-};
+
+        //- Anisotropic thermal conductivity [W/m/K]
+        virtual const volVectorField& Kappa() const;
 
 
-/*---------------------------------------------------------------------------*\
-                   Class solidThermo::composite Declaration
-\*---------------------------------------------------------------------------*/
+    // Member Operators
 
-class solidThermo::composite
-:
-    public basicThermo::implementation,
-    public pureThermo,
-    public rhoThermo::implementation,
-    public solidThermo::implementation
-{
-public:
-
-    // Constructors
-
-        //- Construct from dictionary, mesh and phase name
-        composite
-        (
-            const dictionary& dict,
-            const fvMesh& mesh,
-            const word& phaseName
-        )
-        :
-            basicThermo::implementation(dict, mesh, phaseName),
-            rhoThermo::implementation(dict, mesh, phaseName),
-            solidThermo::implementation(dict, mesh, phaseName)
-        {}
-
-        //- Construct from dictionary, mesh and phase name
-        template<class MixtureType>
-        composite
-        (
-            const dictionary& dict,
-            const MixtureType& mixture,
-            const fvMesh& mesh,
-            const word& phaseName
-        )
-        :
-            composite(dict, mesh, phaseName)
-        {}
-
-
-    // Member Functions
-
-        //- The dpdt term should not be included in the enthalpy equation
-        virtual Switch dpdt() const
-        {
-            return false;
-        }
+        //- Disallow default bitwise assignment
+        void operator=(const SolidThermo<BaseThermo>&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "SolidThermo.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

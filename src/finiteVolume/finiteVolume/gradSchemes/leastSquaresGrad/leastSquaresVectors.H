@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2022 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2013-2022 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,51 +22,58 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::leastSquaresVectors
+    Foam::fv::LeastSquaresVectors
 
 Description
     Least-squares gradient scheme vectors
 
+See also
+    Foam::fv::LeastSquaresGrad
+
 SourceFiles
-    leastSquaresVectors.C
+    LeastSquaresVectors.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef leastSquaresVectors_H
-#define leastSquaresVectors_H
+#ifndef LeastSquaresVectors_H
+#define LeastSquaresVectors_H
 
+#include "extendedCentredCellToCellStencil.H"
 #include "DemandDrivenMeshObject.H"
-#include "fvMesh.H"
-#include "surfaceFields.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
 
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+namespace fv
+{
+
 /*---------------------------------------------------------------------------*\
-                     Class leastSquaresVectors Declaration
+                     Class LeastSquaresVectors Declaration
 \*---------------------------------------------------------------------------*/
 
-class leastSquaresVectors
+template<class Stencil>
+class LeastSquaresVectors
 :
     public DemandDrivenMeshObject
     <
         fvMesh,
         MoveableMeshObject,
-        leastSquaresVectors
+        LeastSquaresVectors<Stencil>
     >
 {
     // Private Data
 
         //- Least-squares gradient vectors
-        surfaceVectorField pVectors_;
-        surfaceVectorField nVectors_;
+        List<List<vector>> vectors_;
 
 
     // Private Member Functions
 
-        //- Construct Least-squares gradient vectors
+        //- Calculate Least-squares gradient vectors
         void calcLeastSquaresVectors();
 
 
@@ -76,47 +83,60 @@ protected:
     <
         fvMesh,
         MoveableMeshObject,
-        leastSquaresVectors
+        LeastSquaresVectors<Stencil>
     >;
 
     // Protected Constructors
 
-        //- Construct given an fvMesh
-        explicit leastSquaresVectors(const fvMesh&);
+        //- Construct given an fvMesh and the minimum determinant criterion
+        LeastSquaresVectors
+        (
+            const fvMesh&
+        );
 
 
 public:
 
     // Declare name of the class and its debug switch
-    TypeName("leastSquaresVectors");
+    TypeName("LeastSquaresVectors");
 
 
     //- Destructor
-    virtual ~leastSquaresVectors();
+    virtual ~LeastSquaresVectors();
 
 
     // Member Functions
 
-        //- Return reference to owner least square vectors
-        const surfaceVectorField& pVectors() const
+        //- Return reference to the stencil
+        const extendedCentredCellToCellStencil& stencil() const
         {
-            return pVectors_;
+            return Stencil::New(this->mesh());
         }
 
-        //- Return reference to neighbour least square vectors
-        const surfaceVectorField& nVectors() const
+        //- Return reference to the least square vectors
+        const List<List<vector>>& vectors() const
         {
-            return nVectors_;
+            return vectors_;
         }
 
-        //- Delete the least square vectors when the mesh moves
+        //- Update the least square vectors when the mesh moves
         virtual bool movePoints();
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
+} // End namespace fv
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "LeastSquaresVectors.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

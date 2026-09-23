@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2026 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2023 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -23,47 +23,185 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "rhoFluidThermo.H"
+#include "RhoFluidThermo.H"
 
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * Private Member Functions  * * * * * * * * * * * //
 
-namespace Foam
+template<class BaseThermo>
+void Foam::RhoFluidThermo<BaseThermo>::calculate()
 {
-    defineTypeNameAndDebug(rhoFluidThermo, 0);
-    defineRunTimeSelectionTable(rhoFluidThermo, fvMesh);
+    const scalarField& hCells = this->he();
+    const scalarField& pCells = this->p_;
+
+    scalarField& TCells = this->T_.primitiveFieldRef();
+    scalarField& CpCells = this->Cp_.primitiveFieldRef();
+    scalarField& CvCells = this->Cv_.primitiveFieldRef();
+    scalarField& psiCells = this->psi_.primitiveFieldRef();
+    scalarField& rhoCells = this->rho_.primitiveFieldRef();
+    scalarField& muCells = this->mu_.primitiveFieldRef();
+    scalarField& kappaCells = this->kappa_.primitiveFieldRef();
+
+    auto Yslicer = this->Yslicer();
+
+    forAll(TCells, celli)
+    {
+        auto composition = this->cellComposition(Yslicer, celli);
+
+        const typename BaseThermo::mixtureType::thermoMixtureType&
+            thermoMixture = this->thermoMixture(composition);
+
+        const typename BaseThermo::mixtureType::transportMixtureType&
+            transportMixture =
+            this->transportMixture(composition, thermoMixture);
+
+        TCells[celli] = thermoMixture.The
+        (
+            hCells[celli],
+            pCells[celli],
+            TCells[celli]
+        );
+
+        CpCells[celli] = thermoMixture.Cp(pCells[celli], TCells[celli]);
+        CvCells[celli] = thermoMixture.Cv(pCells[celli], TCells[celli]);
+        psiCells[celli] = thermoMixture.psi(pCells[celli], TCells[celli]);
+        rhoCells[celli] = thermoMixture.rho(pCells[celli], TCells[celli]);
+
+        muCells[celli] = transportMixture.mu(pCells[celli], TCells[celli]);
+        kappaCells[celli] =
+            transportMixture.kappa(pCells[celli], TCells[celli]);
+    }
+
+    volScalarField::Boundary& pBf =
+        this->p_.boundaryFieldRef();
+
+    volScalarField::Boundary& TBf =
+        this->T_.boundaryFieldRef();
+
+    volScalarField::Boundary& CpBf =
+        this->Cp_.boundaryFieldRef();
+
+    volScalarField::Boundary& CvBf =
+        this->Cv_.boundaryFieldRef();
+
+    volScalarField::Boundary& psiBf =
+        this->psi_.boundaryFieldRef();
+
+    volScalarField::Boundary& rhoBf =
+        this->rho_.boundaryFieldRef();
+
+    volScalarField::Boundary& heBf =
+        this->he().boundaryFieldRef();
+
+    volScalarField::Boundary& muBf =
+        this->mu_.boundaryFieldRef();
+
+    volScalarField::Boundary& kappaBf =
+        this->kappa_.boundaryFieldRef();
+
+    forAll(this->T_.boundaryField(), patchi)
+    {
+        fvPatchScalarField& pp = pBf[patchi];
+        fvPatchScalarField& pT = TBf[patchi];
+        fvPatchScalarField& pCp = CpBf[patchi];
+        fvPatchScalarField& pCv = CvBf[patchi];
+        fvPatchScalarField& ppsi = psiBf[patchi];
+        fvPatchScalarField& prho = rhoBf[patchi];
+        fvPatchScalarField& phe = heBf[patchi];
+        fvPatchScalarField& pmu = muBf[patchi];
+        fvPatchScalarField& pkappa = kappaBf[patchi];
+
+        if (pT.fixesValue())
+        {
+            forAll(pT, facei)
+            {
+                auto composition =
+                    this->patchFaceComposition(Yslicer, patchi, facei);
+
+                const typename BaseThermo::mixtureType::thermoMixtureType&
+                    thermoMixture = this->thermoMixture(composition);
+
+                const typename BaseThermo::mixtureType::transportMixtureType&
+                    transportMixture =
+                    this->transportMixture(composition, thermoMixture);
+
+                phe[facei] = thermoMixture.he(pp[facei], pT[facei]);
+
+                pCp[facei] = thermoMixture.Cp(pp[facei], pT[facei]);
+                pCv[facei] = thermoMixture.Cv(pp[facei], pT[facei]);
+                ppsi[facei] = thermoMixture.psi(pp[facei], pT[facei]);
+                prho[facei] = thermoMixture.rho(pp[facei], pT[facei]);
+
+                pmu[facei] = transportMixture.mu(pp[facei], pT[facei]);
+                pkappa[facei] = transportMixture.kappa(pp[facei], pT[facei]);
+            }
+        }
+        else
+        {
+            forAll(pT, facei)
+            {
+                auto composition =
+                    this->patchFaceComposition(Yslicer, patchi, facei);
+
+                const typename BaseThermo::mixtureType::thermoMixtureType&
+                    thermoMixture = this->thermoMixture(composition);
+
+                const typename BaseThermo::mixtureType::transportMixtureType&
+                    transportMixture =
+                    this->transportMixture(composition, thermoMixture);
+
+                pT[facei] = thermoMixture.The(phe[facei], pp[facei], pT[facei]);
+
+                pCp[facei] = thermoMixture.Cp(pp[facei], pT[facei]);
+                pCv[facei] = thermoMixture.Cv(pp[facei], pT[facei]);
+                ppsi[facei] = thermoMixture.psi(pp[facei], pT[facei]);
+                prho[facei] = thermoMixture.rho(pp[facei], pT[facei]);
+
+                pmu[facei] = transportMixture.mu(pp[facei], pT[facei]);
+                pkappa[facei] = transportMixture.kappa(pp[facei], pT[facei]);
+            }
+        }
+    }
 }
 
 
-// * * * * * * * * * * * * * * * * Selectors * * * * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::autoPtr<Foam::rhoFluidThermo> Foam::rhoFluidThermo::New
+template<class BaseThermo>
+Foam::RhoFluidThermo<BaseThermo>::RhoFluidThermo
 (
     const fvMesh& mesh,
     const word& phaseName
 )
+:
+    BaseThermo(mesh, phaseName)
 {
-    return basicThermo::New<rhoFluidThermo>(mesh, phaseName);
+    calculate();
 }
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::rhoFluidThermo::~rhoFluidThermo()
+template<class BaseThermo>
+Foam::RhoFluidThermo<BaseThermo>::~RhoFluidThermo()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::tmp<Foam::volScalarField> Foam::rhoFluidThermo::renameRho()
+template<class BaseThermo>
+void Foam::RhoFluidThermo<BaseThermo>::correct()
 {
-    rho().rename(phasePropertyName(Foam::typedName<rhoFluidThermo>("rho")));
-    return rho();
-}
+    if (BaseThermo::debug)
+    {
+        InfoInFunction << endl;
+    }
 
+    calculate();
 
-void Foam::rhoFluidThermo::correctRho(const volScalarField& dp)
-{
-    rho() += psi()*dp;
+    if (BaseThermo::debug)
+    {
+        Info<< "    Finished" << endl;
+    }
 }
 
 

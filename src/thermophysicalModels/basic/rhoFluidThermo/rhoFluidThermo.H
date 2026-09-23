@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2026 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2023 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,26 +22,20 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::rhoFluidThermo
+    Foam::RhoFluidThermo
 
 Description
-    Base-class for fluid thermodynamic properties based on density.
-
-See also
-    Foam::basicThermo
+    Thermo implementation based on density
 
 SourceFiles
-    rhoFluidThermo.C
+    RhoFluidThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef rhoFluidThermo_H
-#define rhoFluidThermo_H
+#ifndef RhoFluidThermo_H
+#define RhoFluidThermo_H
 
-#include "RhoFluidThermo.H"
-#include "pureThermo.H"
-#include "rhoThermo.H"
-#include "fluidThermo.H"
+#include "BasicThermo.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -49,128 +43,57 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                          Class rhoFluidThermo Declaration
+                         Class RhoFluidThermo Declaration
 \*---------------------------------------------------------------------------*/
 
-class rhoFluidThermo
+template<class BaseThermo>
+class RhoFluidThermo
 :
-    virtual public rhoThermo,
-    virtual public fluidThermo
+    public BaseThermo
 {
-public:
+    // Private Member Functions
 
-    // Public Classes
-
-        //- Forward declare the composite class
-        class composite;
+        //- Calculate the thermo variables
+        void calculate();
 
 
-    // Public Typedefs
-
-        //- The derived type
-        template<class MixtureType>
-        using DerivedThermoType =
-            RhoFluidThermo<BasicThermo<MixtureType, composite>>;
-
-        //- The derived name
-        static word derivedThermoName()
-        {
-            return "heRhoThermo";
-        }
-
-
-    //- Runtime type information
-    TypeName("rhoFluidThermo");
-
-
-    //- Declare run-time constructor selection table
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        rhoFluidThermo,
-        fvMesh,
-        (const fvMesh& mesh, const word& phaseName),
-        (mesh, phaseName)
-    );
-
-
-    // Selectors
-
-        //- Standard selection based on fvMesh
-        static autoPtr<rhoFluidThermo> New
-        (
-            const fvMesh&,
-            const word& phaseName=word::null
-        );
-
-
-    //- Destructor
-    virtual ~rhoFluidThermo();
-
-
-    // Member Functions
-
-        // Derived Thermodynamic Properties
-
-            //- Rename and return the thermodynamic density field [kg/m^3]
-            //  This is used by solvers which create a separate continuity rho
-            virtual tmp<volScalarField> renameRho();
-
-            //- Update the density corresponding to the given pressure change
-            //  Used to update the density field following pressure solution
-            virtual void correctRho(const volScalarField& dp);
-};
-
-
-/*---------------------------------------------------------------------------*\
-                    Class rhoFluidThermo::composite Declaration
-\*---------------------------------------------------------------------------*/
-
-class rhoFluidThermo::composite
-:
-    public basicThermo::implementation,
-    public pureThermo,
-    public rhoThermo::implementation,
-    public fluidThermo::implementation,
-    public rhoFluidThermo
-{
 public:
 
     // Constructors
 
-        //- Construct from dictionary, mesh and phase name
-        composite
-        (
-            const dictionary& dict,
-            const fvMesh& mesh,
-            const word& phaseName
-        )
-        :
-            basicThermo::implementation(dict, mesh, phaseName),
-            rhoThermo::implementation(dict, mesh, phaseName),
-            fluidThermo::implementation(dict, mesh, phaseName)
-        {}
+        //- Construct from mesh and phase name
+        RhoFluidThermo(const fvMesh&, const word& phaseName);
 
-        //- Construct from dictionary, mesh and phase name
-        template<class MixtureType>
-        composite
-        (
-            const dictionary& dict,
-            const MixtureType& mixture,
-            const fvMesh& mesh,
-            const word& phaseName
-        )
-        :
-            basicThermo::implementation(dict, mesh, phaseName),
-            rhoThermo::implementation(dict, mesh, phaseName),
-            fluidThermo::implementation(dict, mesh, phaseName)
-        {}
+        //- Disallow default bitwise copy construction
+        RhoFluidThermo(const RhoFluidThermo<BaseThermo>&) = delete;
+
+
+    //- Destructor
+    virtual ~RhoFluidThermo();
+
+
+    // Member Functions
+
+        //- Update properties
+        virtual void correct();
+
+
+    // Member Operators
+
+        //- Disallow default bitwise assignment
+        void operator=(const RhoFluidThermo<BaseThermo>&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "RhoFluidThermo.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

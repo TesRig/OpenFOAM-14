@@ -1,0 +1,9 @@
+EXE_INC = \
+    -I$(FOAM_SRC)/OpenFOAM/lnInclude \
+    -I$(AMGX_ROOT)/include
+
+LIB_LIBS = \
+    -L$(AMGX_ROOT)/lib \
+    -lamgxsh \
+    -lOpenFOAM
+

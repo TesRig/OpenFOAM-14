@@ -24,20 +24,144 @@ License
 \*---------------------------------------------------------------------------*/
 
 #include "Residuals.H"
-#include "fieldTypes.H"
+#include "Time.H"
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-#define makeResiduals(Type)                                                    \
-    defineTemplateTypeNameAndDebug(Residuals<Type>, 0);
+template<class Type>
+Foam::Residuals<Type>::Residuals(const polyMesh& mesh)
+:
+    DemandDrivenMeshObject
+    <
+        polyMesh,
+        TopoChangeableMeshObject,
+        Residuals<Type>
+    >(mesh),
+    prevTimeIndex_(-1)
+{}
 
-namespace Foam
+
+// * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * * //
+
+template<class Type>
+Foam::List<Foam::word> Foam::Residuals<Type>::fieldNames(const polyMesh& mesh)
 {
-    makeResiduals(scalar);
-    makeResiduals(vector);
-    makeResiduals(sphericalTensor);
-    makeResiduals(symmTensor);
-    makeResiduals(tensor);
+    return DemandDrivenMeshObject
+    <
+        polyMesh,
+        TopoChangeableMeshObject,
+        Residuals<Type>
+    >::New
+    (
+        mesh
+    ).HashTable<DynamicList<SolverPerformance<Type>>>::toc();
 }
+
+
+template<class Type>
+bool Foam::Residuals<Type>::found(const polyMesh& mesh, const word& fieldName)
+{
+    return DemandDrivenMeshObject
+    <
+        polyMesh,
+        TopoChangeableMeshObject,
+        Residuals<Type>
+        >::New
+    (
+        mesh
+    ).HashTable<DynamicList<SolverPerformance<Type>>>::found(fieldName);
+}
+
+
+template<class Type>
+const Foam::DynamicList<Foam::SolverPerformance<Type>>&
+Foam::Residuals<Type>::field
+(
+    const polyMesh& mesh,
+    const word& fieldName
+)
+{
+    return DemandDrivenMeshObject
+    <
+        polyMesh,
+        TopoChangeableMeshObject,
+        Residuals<Type>
+    >::New
+    (
+        mesh
+    )[fieldName];
+}
+
+
+template<class Type>
+void Foam::Residuals<Type>::append
+(
+    const polyMesh& mesh,
+    const SolverPerformance<Type>& sp
+)
+{
+    Residuals<Type>& residuals = const_cast<Residuals<Type>&>
+    (
+        DemandDrivenMeshObject
+        <
+            polyMesh,
+            TopoChangeableMeshObject,
+            Residuals<Type>
+        >::New
+        (
+            mesh
+        )
+    );
+
+    HashTable<DynamicList<SolverPerformance<Type>>>& table = residuals;
+
+    const label timeIndex =
+        mesh.time().subCycling()
+      ? mesh.time().prevTimeState().timeIndex()
+      : mesh.time().timeIndex();
+
+    if (residuals.prevTimeIndex_ != timeIndex)
+    {
+        // Reset solver performance between iterations
+        residuals.prevTimeIndex_ = timeIndex;
+        table.clear();
+    }
+
+    if (table.found(sp.fieldName()))
+    {
+        table[sp.fieldName()].append(sp);
+    }
+    else
+    {
+        table.insert
+        (
+            sp.fieldName(),
+            DynamicList<SolverPerformance<Type>>(1, sp)
+        );
+    }
+}
+
+
+template<class Type>
+bool Foam::Residuals<Type>::movePoints()
+{
+    return true;
+}
+
+
+template<class Type>
+void Foam::Residuals<Type>::distribute(const polyDistributionMap&)
+{}
+
+
+template<class Type>
+void Foam::Residuals<Type>::topoChange(const polyTopoChangeMap&)
+{}
+
+
+template<class Type>
+void Foam::Residuals<Type>::mapMesh(const polyMeshMap&)
+{}
+
 
 // ************************************************************************* //

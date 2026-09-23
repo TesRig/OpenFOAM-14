@@ -23,38 +23,19 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "uMulticomponentMixture.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
-
-namespace Foam
-{
-    defineTypeNameAndDebug(uMulticomponentMixture, 0);
-}
-
+#include "UMulticomponentMixture.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::uMulticomponentMixture::uMulticomponentMixture
+template<class ThermoType>
+Foam::UMulticomponentMixture<ThermoType>::UMulticomponentMixture
 (
-    const speciesTable& species,
     const dictionary& dict
 )
 :
-    fu_(species[dict.lookup<word>("fuelSpecie")]),
-    stoicRatio_(dict.lookup<scalar>("stoichiometricAirFuelMassRatio"))
+    coefficientMulticomponentMixture<ThermoType>(dict),
+    uMulticomponentMixture(this->species(), dict)
 {}
-
-
-// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
-
-Foam::scalar Foam::uMulticomponentMixture::Phi
-(
-    const scalarFieldListSlice& Yu
-) const
-{
-    return stoicRatio_*Yu[fu_]/max(scalar(1) - Yu[fu_], small);
-}
 
 
 // ************************************************************************* //

@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2022-2026 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2016-2026 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,118 +22,150 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::chemistryModels::standard
+    Foam::chemistryModels::Standard
 
 Description
-    Non-templated Base class for Foam::chemistryModels::Standard
+    Extension to Foam::chemistryModels::standard templated on thermo
+    and provides stiff ODE integration functions.
 
-    With run-time selected ODE solver and optional cellZone to limit the region
-    in which the chemistry is integrated to speed-up large cases in which the
-    chemistry is active in a small sub-region.
-
-    Example of \c standard \c chemistryModel specification in
-    constant/chemistryProperties using the \c seulex ODE solver to integrate
-    the included reaction system:
-    \verbatim
-    type            standard;
-
-    initialChemicalTimeStep 1e-7;
-
-    ode
-    {
-        solver          seulex;
-        absTol          1e-8;
-        relTol          1e-1;
-    }
-
-    #include "reactions"
-    \endverbatim
+    Integrates a standard OpenFOAM reaction system and evaluation of chemical
+    source terms with optional support for mechanism reduction and tabulation.
 
 See also
-    Foam::chemistryModel
-    Foam::chemistryModels::Standard
-    Foam::generatedCellZone
+    Foam::chemistryModels::standard
 
 SourceFiles
-    standard_chemistryModelI.H
+    Standard_chemistryModelI.H
     standard_chemistryModel.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef standard_chemistryModel_H
-#define standard_chemistryModel_H
+#ifndef Standard_chemistryModel_H
+#define Standard_chemistryModel_H
 
-#include "chemistryModel.H"
-#include "ODESolver.H"
-#include "generatedCellZone.H"
-#include "OFstream.H"
+#include "standard_chemistryModel.H"
+#include "multicomponentMixture.H"
+#include "ReactionList.H"
+#include "chemistryReductionMethod.H"
+#include "chemistryTabulationMethod.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
-
-template<class ThermoType>
-class chemistryReductionMethod;
-
 namespace chemistryModels
 {
 
 /*---------------------------------------------------------------------------*\
-                           Class standard Declaration
+                           Class Standard Declaration
 \*---------------------------------------------------------------------------*/
 
-class standard
+template<class ThermoType>
+class Standard
 :
-    public chemistryModel,
-    public ODESystem
+    public standard
 {
-protected:
+    // Private classes
 
-    // Protected data
-
-        //- Enumeration for the type of Jacobian to be calculated by the
-        //  chemistryModel
-        enum class jacobianType
+        //- Class to define scope of reaction evaluation. Runs pre-evaluate
+        //  hook on all reactions on construction and post-evaluate on
+        //  destruction.
+        class reactionEvaluationScope
         {
-            fast,
-            exact
+            const Standard<ThermoType>& chemistry_;
+
+        public:
+
+            reactionEvaluationScope
+            (
+                const Standard<ThermoType>& chemistry
+            )
+            :
+                chemistry_(chemistry)
+            {
+                forAll(chemistry_.reactions_, i)
+                {
+                    chemistry_.reactions_[i].preEvaluate();
+                }
+            }
+
+            ~reactionEvaluationScope()
+            {
+                forAll(chemistry_.reactions_, i)
+                {
+                    chemistry_.reactions_[i].postEvaluate();
+                }
+            }
         };
 
-        //- Jacobian type names
-        static const NamedEnum<jacobianType, 2> jacobianTypeNames;
 
-        //- Optional cellZone to limit where the chemistry is integrated
-        generatedCellZone zone_;
+    // Private data
 
-        //- Reference to the field of specie mass fractions
-        const PtrList<volScalarField>& Yvf_;
+        //- Switch to select performance logging
+        Switch log_;
 
-        //- Number of species
-        label nSpecie_;
+        //- Switch to enable per-cell CPU load caching for load-balancing
+        Switch cpuLoad_;
 
-        //- Is chemistry reduction active
-        bool reduction_;
+        //- Type of the Jacobian to be calculated
+        const jacobianType jacobianType_;
 
-        //- Temporary map from complete to simplified concentration fields
-        //  c -> sc
-        mutable List<label> cTos_;
+        //- Reference to the multi component mixture
+        const multicomponentMixture<ThermoType>& mixture_;
 
-        //- Temporary map from simplified to complete concentration fields
-        //  sc -> c
-        mutable DynamicList<label> sToc_;
+        //- Thermodynamic data of the species
+        const PtrList<ThermoType>& specieThermos_;
 
-        //- ODE solver
-        mutable autoPtr<ODESolver> odeSolver_;
+        //- Reactions
+        const ReactionList<ThermoType> reactions_;
 
-        // ODE solver data
-        mutable scalarField cTp_;
+        //- List of reaction rate per specie [kg/m^3/s]
+        PtrList<volScalarField::Internal> RR_;
+
+        //- Temporary mass fraction field
+        mutable scalarField Y_;
+
+        //- Temporary simplified mechanism mass fraction field
+        DynamicField<scalar> sY_;
+
+        //- Temporary concentration field
+        mutable scalarField c_;
+
+        //- Temporary simplified mechanism concentration field
+        DynamicField<scalar> sc_;
+
+        //- Specie-temperature-pressure workspace fields
+        mutable FixedList<scalarField, 5> YTpWork_;
+
+        //- Specie-temperature-pressure workspace matrices
+        mutable FixedList<scalarSquareMatrix, 2> YTpYTpWork_;
+
+        //- Mechanism reduction method
+        autoPtr<chemistryReductionMethod<ThermoType>> mechRedPtr_;
+
+        //- Mechanism reduction method reference
+        chemistryReductionMethod<ThermoType>& mechRed_;
+
+        //- Tabulation method
+        autoPtr<chemistryTabulationMethod> tabulationPtr_;
+
+        //- Tabulation method reference
+        chemistryTabulationMethod& tabulation_;
+
+        //- Log file for average time spent solving the chemistry
+        autoPtr<OFstream> cpuSolveFile_;
+
+
+    // Private Member Functions
+
+        //- Solve the reaction system for the given time step
+        //  of given type and return the characteristic time
+        //  Variable number of species added
+        template<class DeltaTType>
+        scalar solve(const DeltaTType& deltaT);
 
 
 public:
-
-    template<class ThermoType>
-    friend class Foam::chemistryReductionMethod;
 
     //- Runtime type information
     TypeName("standard");
@@ -142,49 +174,111 @@ public:
     // Constructors
 
         //- Construct from thermo
-        standard(const fluidMulticomponentThermo& thermo);
+        Standard(const fluidMulticomponentThermo& thermo);
 
         //- Disallow default bitwise copy construction
-        standard(const standard&) = delete;
+        Standard(const Standard&) = delete;
 
 
     //- Destructor
-    virtual ~standard();
+    virtual ~Standard();
 
 
     // Member Functions
 
-        //- Create and return a TDAC log file of the given name
-        inline autoPtr<OFstream> logFile(const word& name) const;
+        // Access
 
-        //- The number of species
-        inline virtual label nSpecie() const;
+            //- Return reference to the mixture
+            inline const multicomponentMixture<ThermoType>& mixture() const;
 
-        //- Allow the reduction method to reset the number of species
-        inline void setNSpecie(const label newNs);
+            //- The reactions
+            inline const PtrList<Reaction<ThermoType>>& reactions() const;
 
-        //- Number of ODE's to solve
-        inline virtual label nEqns() const;
+            //- Thermodynamic data of the species
+            inline const PtrList<ThermoType>& specieThermos() const;
 
-        //- Return a reference to the list of mass fraction fields
-        inline const PtrList<volScalarField>& Y() const;
 
-        //- Return true if mechanism reduction is active
-        inline bool reduction() const;
+        // Overrides to chemistryModel functions
 
-        //- Return the index in the complete set of species
-        //  corresponding to the index si in the simplified set of species
-        inline label sToc(const label si) const;
+            //- The number of reactions
+            virtual inline label nReaction() const;
 
-        //- Return the index in the simplified set of species
-        //  corresponding to the index si in the complete set of species
-        inline label cTos(const label ci) const;
+            //- Return reaction rates of the species [kg/m^3/s]
+            virtual inline const PtrList<volScalarField::Internal>& RR() const;
+
+            //- Return the name of reactioni
+            virtual inline const word& reactionName
+            (
+                const label reactioni
+            ) const;
+
+            //- Return the rate of reactioni [kmol/m^3/s]
+            virtual tmp<volScalarField::Internal> reactionRR
+            (
+                const label reactioni
+            ) const;
+
+            //- Return reaction rates of the species in reactioni [kg/m^3/s]
+            virtual PtrList<volScalarField::Internal> specieReactionRR
+            (
+                const label reactioni
+            ) const;
+
+            //- Calculates the reaction rates
+            virtual void calculate();
+
+            //- Solve the reaction system for the given time step
+            //  and return the characteristic time
+            virtual scalar solve(const scalar deltaT);
+
+            //- Solve the reaction system for the given time step
+            //  and return the characteristic time
+            virtual scalar solve(const scalarField& deltaT);
+
+            //- Return the chemical time scale
+            virtual tmp<volScalarField> tc() const;
+
+            //- Return the heat release rate [kg/m/s^3]
+            virtual tmp<volScalarField> Qdot() const;
+
+
+        // ODE solution functions
+
+            //- Calculate the ODE derivatives
+            virtual void derivatives
+            (
+                const scalar t,
+                const scalarField& YTp,
+                const label li,
+                scalarField& dYTpdt
+            ) const;
+
+            //- Calculate the ODE jacobian
+            virtual void jacobian
+            (
+                const scalar t,
+                const scalarField& YTp,
+                const label li,
+                scalarField& dYTpdt,
+                scalarSquareMatrix& J
+            ) const;
+
+            //- Solve the ODE system
+            virtual void solve
+            (
+                scalar& p,
+                scalar& T,
+                scalarField& Y,
+                const label li,
+                scalar& deltaT,
+                scalar& subDeltaT
+            ) const;
 
 
     // Member Operators
 
         //- Disallow default bitwise assignment
-        void operator=(const standard&) = delete;
+        void operator=(const Standard&) = delete;
 };
 
 
@@ -195,7 +289,13 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "standard_chemistryModelI.H"
+#include "Standard_chemistryModelI.H"
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "Standard_chemistryModel.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

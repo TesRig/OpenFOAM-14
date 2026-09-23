@@ -22,24 +22,21 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::multicomponentLagrangianThermo
+    Foam::MulticomponentLagrangianThermo
 
 Description
-    Base-class for multicomponent Lagrangian thermodynamic models
+    Multicomponent Lagrangian thermodynamic model implementation
 
 SourceFiles
-    multicomponentLagrangianThermoI.H
-    multicomponentLagrangianThermo.C
+    MulticomponentLagrangianThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef multicomponentLagrangianThermo_H
-#define multicomponentLagrangianThermo_H
+#ifndef MulticomponentLagrangianThermo_H
+#define MulticomponentLagrangianThermo_H
 
-#include "basicLagrangianThermo.H"
-#include "MulticomponentLagrangianThermo.H"
+#include "BasicLagrangianThermo.H"
 #include "speciesTable.H"
-#include "DimensionedFieldListSlicer.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -47,48 +44,54 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                  Class multicomponentLagrangianThermo Declaration
+                  Class MulticomponentLagrangianThermo Declaration
 \*---------------------------------------------------------------------------*/
 
-class multicomponentLagrangianThermo
+template<class BaseThermo>
+class MulticomponentLagrangianThermo
 :
-    virtual public basicLagrangianThermo
+    public BaseThermo
 {
+protected:
+
+    // Protected Member Functions
+
+        //- Return a LagrangianInternalScalarField of the given property
+        template<class Method, class ... Args>
+        tmp<LagrangianInternalScalarField>
+        LagrangianInternalScalarFieldPropertyi
+        (
+            const word& psiName,
+            const dimensionSet& psiDim,
+            Method psiMethod,
+            const label speciei,
+            const Args& ... args
+        ) const;
+
+        //- Return a LagrangianSubScalarField of the given property
+        template<class Method, class ... Args>
+        tmp<LagrangianSubScalarField>
+        LagrangianSubScalarFieldPropertyi
+        (
+            const LagrangianSubMesh& subMesh,
+            const word& psiName,
+            const dimensionSet& psiDim,
+            Method psiMethod,
+            const label speciei,
+            const Args& ... args
+        ) const;
+
+
 public:
 
-    //- Runtime type information
-    TypeName("multicomponentLagrangianThermo");
+    // Constructors
 
-
-    //- Declare run-time constructor selection table
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        multicomponentLagrangianThermo,
-        LagrangianMesh,
-        (const LagrangianMesh& mesh, const word& phaseName),
-        (mesh, phaseName)
-    );
-
-
-    // Public Classes
-
-        //- Forward declare the implementation class
-        class implementation;
-
-
-    // Selectors
-
-        //- Select a multicomponent thermo
-        static autoPtr<multicomponentLagrangianThermo> New
-        (
-            const LagrangianMesh& mesh,
-            const word& phaseName=word::null
-        );
+        //- Inherit constructors
+        using BaseThermo::BaseThermo;
 
 
     //- Destructor
-    virtual ~multicomponentLagrangianThermo();
+    virtual ~MulticomponentLagrangianThermo();
 
 
     // Member Functions
@@ -96,48 +99,16 @@ public:
         // Species set
 
             //- Return the table of species
-            virtual const speciesTable& species() const = 0;
-
-            //- Does the mixture include this specie?
-            inline bool containsSpecie(const word& specieName) const;
-
-            //- The index of the default specie
-            virtual label defaultSpecie() const = 0;
-
-
-        // Mass fractions
-
-            //- Access the mass-fraction fields
-            virtual PtrList<LagrangianScalarDynamicField>& Y() = 0;
-
-            //- Access the mass-fraction fields
-            virtual const PtrList<LagrangianScalarDynamicField>& Y() const = 0;
-
-            //- Access the mass-fraction field for a specie given by index
-            inline LagrangianScalarDynamicField& Y(const label);
-
-            //- Access the mass-fraction field for a specie given by index
-            inline const LagrangianScalarDynamicField& Y(const label) const;
-
-            //- Access the mass-fraction field for a specie given by name
-            inline LagrangianScalarDynamicField& Y(const word&);
-
-            //- Access the mass-fraction field for a specie given by name
-            inline const LagrangianScalarDynamicField& Y(const word&) const;
-
-            //- Access the specie index of the given mass-fraction field
-            inline label specieIndex(const LagrangianScalarDynamicField&) const;
-
-            //- Normalise the mass fractions within the given sub-mesh by
-            //  clipping positive and deriving the default specie mass fraction
-            //  from the other species
-            virtual void normaliseY(const LagrangianSubMesh&) = 0;
+            virtual const speciesTable& species() const
+            {
+                return BaseThermo::mixtureType::species();
+            }
 
 
         // Specie molecular properties
 
             //- Molecular weight [kg/kmol]
-            virtual dimensionedScalar Wi(const label speciei) const = 0;
+            virtual dimensionedScalar Wi(const label speciei) const;
 
 
         // Specie thermodynamic properties
@@ -148,7 +119,7 @@ public:
                 const label speciei,
                 const LagrangianSubScalarField& p,
                 const LagrangianSubScalarField& T
-            ) const = 0;
+            ) const;
 
             //- Sensible enthalpy [J/kg]
             virtual tmp<LagrangianSubScalarField> hsi
@@ -156,10 +127,10 @@ public:
                 const label speciei,
                 const LagrangianSubScalarField& p,
                 const LagrangianSubScalarField& T
-            ) const = 0;
+            ) const;
 
             //- Enthalpy of formation [J/kg]
-            virtual dimensionedScalar hfi(const label speciei) const = 0;
+            virtual dimensionedScalar hfi(const label speciei) const;
 
             //- Heat capacity at constant volume [J/kg/K]
             virtual tmp<LagrangianSubScalarField> Cvi
@@ -167,7 +138,7 @@ public:
                 const label speciei,
                 const LagrangianSubScalarField& p,
                 const LagrangianSubScalarField& T
-            ) const = 0;
+            ) const;
 
             //- Heat capacity at constant pressure [J/kg/K]
             virtual tmp<LagrangianSubScalarField> Cpi
@@ -175,99 +146,6 @@ public:
                 const label speciei,
                 const LagrangianSubScalarField& p,
                 const LagrangianSubScalarField& T
-            ) const = 0;
-};
-
-
-/*---------------------------------------------------------------------------*\
-        Class multicomponentLagrangianThermo::implementation Declaration
-\*---------------------------------------------------------------------------*/
-
-class multicomponentLagrangianThermo::implementation
-:
-    virtual public multicomponentLagrangianThermo
-{
-protected:
-
-    // Protected data
-
-        //- The name of the default specie. The mass fraction of which is
-        //  derived from the other species rather than solved. Also used as the
-        //  carrier specie in multicomponent diffusion.
-        word defaultSpecieName_;
-
-        //- The index of the default specie
-        label defaultSpeciei_;
-
-        //- Species mass fractions
-        PtrList<LagrangianScalarDynamicField> Y_;
-
-
-public:
-
-    // Constructors
-
-        //- Construct from dictionary, mesh and phase name
-        implementation
-        (
-            const dictionary&,
-            const speciesTable&,
-            const LagrangianMesh&,
-            const word&
-        );
-
-
-    //- Destructor
-    virtual ~implementation();
-
-
-    // Member Functions
-
-        // Species set
-
-            //- The index of the default specie
-            virtual label defaultSpecie() const;
-
-
-        // Mass fractions
-
-            //- Access the mass-fraction fields
-            virtual PtrList<LagrangianScalarDynamicField>& Y();
-
-            //- Access the mass-fraction fields
-            virtual const PtrList<LagrangianScalarDynamicField>& Y() const;
-
-            //- Normalise the mass fractions within the given sub-mesh by
-            //  clipping positive and deriving the default specie mass fraction
-            //  from the other species
-            virtual void normaliseY(const LagrangianSubMesh&);
-
-
-        // Composition
-
-            //- Get the slicer
-            inline DimensionedFieldListSlicer<scalar> Yslicer() const;
-
-            //- Get the composition of an element
-            inline scalarFieldListSlice elementComposition
-            (
-                const DimensionedFieldListSlicer<scalar>& Yslicer,
-                const label i
-            ) const;
-
-            //- Get the slicer for an injection
-            inline
-            DimensionedFieldListAndSlicer<scalar, LagrangianSubMesh> Yslicer
-            (
-                const LagrangianInjection&,
-                const LagrangianSubMesh&
-            ) const;
-
-            //- Get the composition of an element in an injection
-            inline scalarFieldListSlice injectionElementComposition
-            (
-                const DimensionedFieldListAndSlicer<scalar, LagrangianSubMesh>&,
-                const label subi
             ) const;
 };
 
@@ -278,7 +156,9 @@ public:
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-#include "multicomponentLagrangianThermoI.H"
+#ifdef NoRepository
+    #include "MulticomponentLagrangianThermo.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

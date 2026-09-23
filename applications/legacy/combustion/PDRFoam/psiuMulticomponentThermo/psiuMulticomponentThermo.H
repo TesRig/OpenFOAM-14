@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2026 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2025 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,28 +22,21 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::psiuMulticomponentThermo
+    Foam::PsiuMulticomponentThermo
 
 Description
-    Base-class for combustion fluid thermodynamic properties based on
-    compressibility.
-
-See also
-    Foam::basicThermo
+    Thermo implementation based on compressibility with additional unburnt
+    thermodynamic state
 
 SourceFiles
-    psiuMulticomponentThermo.C
+    PsiuMulticomponentThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef psiuMulticomponentThermo_H
-#define psiuMulticomponentThermo_H
+#ifndef PsiuMulticomponentThermo_H
+#define PsiuMulticomponentThermo_H
 
-#include "psiThermo.H"
-#include "PsiuMulticomponentThermo.H"
-#include "speciesTable.H"
-#include "DimensionedFieldListSlicer.H"
-#include "GeometricFieldListSlicer.H"
+#include "BasicThermo.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -51,126 +44,85 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                     Class psiuMulticomponentThermo Declaration
+                       Class PsiuMulticomponentThermo Declaration
 \*---------------------------------------------------------------------------*/
 
-class psiuMulticomponentThermo
+template<class BaseThermo>
+class PsiuMulticomponentThermo
 :
-    virtual public psiThermo
+    public BaseThermo
 {
-protected:
+    // Private Data
 
-    // Protected Member Functions
+        //- Unburnt temperature
+        volScalarField Tu_;
 
-        //- Return the unburnt enthalpy/internal energy field boundary types
-        //  by interrogating the temperature field boundary types
-        wordList heuBoundaryTypes();
+        //- Unburnt energy
+        volScalarField heu_;
 
-        //- ...
-        void heuBoundaryCorrection(volScalarField& heu);
+
+    // Private Member Functions
+
+        //- Calculate the thermo variables
+        void calculate();
 
 
 public:
 
-    // Public Classes
+    // Constructors
 
-        //- Forward declare the implementation class
-        class implementation;
+        //- Construct from mesh and phase name
+        PsiuMulticomponentThermo(const fvMesh&, const word& phaseName);
 
-        //- Forward declare the composite class
-        class composite;
-
-
-    // Public Typedefs
-
-        //- The derived type
-        template<class MixtureType>
-        using DerivedThermoType =
-            PsiuMulticomponentThermo<BasicThermo<MixtureType, composite>>;
-
-        //- The derived name
-        static word derivedThermoName()
-        {
-            return "heheuPsiThermo";
-        }
-
-
-    //- Runtime type information
-    TypeName("psiuMulticomponentThermo");
-
-
-    // Declare run-time constructor selection tables
-
-        declareRunTimeSelectionTable
+        //- Disallow default bitwise copy construction
+        PsiuMulticomponentThermo
         (
-            autoPtr,
-            psiuMulticomponentThermo,
-            fvMesh,
-            (const fvMesh& mesh, const word& phaseName),
-            (mesh, phaseName)
-        );
-
-
-    // Selectors
-
-        //- Standard selection based on fvMesh
-        static autoPtr<psiuMulticomponentThermo> New
-        (
-            const fvMesh&,
-            const word& phaseName=word::null
-        );
+            const PsiuMulticomponentThermo<BaseThermo>&
+        ) = delete;
 
 
     //- Destructor
-    virtual ~psiuMulticomponentThermo();
+    virtual ~PsiuMulticomponentThermo();
 
 
     // Member Functions
 
-        // Species set
-
-            //- The table of species
-            virtual const speciesTable& species() const = 0;
-
-            //- Does the mixture include this specie?
-            inline bool containsSpecie(const word& specieName) const;
+        //- Update properties
+        virtual void correct();
 
 
         // Mass fractions
 
-            //- Access the mass-fraction fields
-            virtual PtrList<volScalarField>& Y() = 0;
-
-            //- Access the mass-fraction fields
-            virtual const PtrList<volScalarField>& Y() const = 0;
-
-            //- Return the mass-fraction field for a specie given by name
-            inline volScalarField& Y(const word& specieName);
-
-            //- Return the const mass-fraction field for a specie given by name
-            inline const volScalarField& Y(const word& specieName) const;
-
             //- Return the residual fraction of fuel in the burnt mixture
-            virtual tmp<volScalarField> fres() const = 0;
+            virtual tmp<volScalarField> fres() const;
 
             //- Return the fuel-oxidant equivalence ratio
-            virtual tmp<volScalarField> Phi() const = 0;
+            virtual tmp<volScalarField> Phi() const;
 
             //- Reset the mixture to an unburnt state and update EGR
-            virtual void reset() = 0;
+            virtual void reset();
 
 
         // Thermodynamic state
 
             //- Unburnt gas temperature [K]
-            virtual const volScalarField& Tu() const = 0;
+            virtual const volScalarField& Tu() const
+            {
+                return Tu_;
+            }
 
             //- Unburnt gas enthalpy [J/kg]
-            virtual const volScalarField& heu() const = 0;
+            virtual const volScalarField& heu() const
+            {
+                return heu_;
+            }
 
             //- Unburnt gas enthalpy [J/kg]
             //  Non-const access allowed for transport equations
-            virtual volScalarField& heu() = 0;
+            virtual volScalarField& heu()
+            {
+                return heu_;
+            }
 
 
         // Derived thermodynamic properties
@@ -180,177 +132,41 @@ public:
             (
                 const scalarField& T,
                 const labelList& cells
-            ) const = 0;
+            ) const;
 
             //- Unburnt gas enthalpy for patch [J/kg]
             virtual tmp<scalarField> heu
             (
                 const scalarField& T,
                 const label patchi
-            ) const = 0;
-
-            //- Standard enthalpy of reaction [J/kg]
-            virtual tmp<volScalarField> hr() const = 0;
+            ) const;
 
             //- Burnt gas temperature [K]
-            virtual tmp<volScalarField> Tb() const = 0;
+            virtual tmp<volScalarField> Tb() const;
+
+            //- Standard enthalpy of reaction [J/kg]
+            virtual tmp<volScalarField> hr() const;
 
             //- Unburnt gas compressibility [s^2/m^2]
-            virtual tmp<volScalarField> psiu() const = 0;
+            virtual tmp<volScalarField> psiu() const;
 
             //- Burnt gas compressibility [s^2/m^2]
-            virtual tmp<volScalarField> psib() const = 0;
-
-            //- Unburnt gas density [kg/m^3]
-            tmp<volScalarField> rhou() const;
-
-            //- Burnt gas density [kg/m^3]
-            tmp<volScalarField> rhob() const;
+            virtual tmp<volScalarField> psib() const;
 
 
         // Derived transport properties
 
             //- Dynamic viscosity of unburnt gas [kg/m/s]
-            virtual tmp<volScalarField> muu() const = 0;
+            virtual tmp<volScalarField> muu() const;
 
             //- Dynamic viscosity of burnt gas [kg/m/s]
-            virtual tmp<volScalarField> mub() const = 0;
-};
+            virtual tmp<volScalarField> mub() const;
 
 
-/*---------------------------------------------------------------------------*\
-           Class psiuMulticomponentThermo::implementation Declaration
-\*---------------------------------------------------------------------------*/
+    // Member Operators
 
-class psiuMulticomponentThermo::implementation
-:
-    virtual public psiuMulticomponentThermo
-{
-protected:
-
-    // Protected data
-
-        //- Table of specie names
-        speciesTable species_;
-
-        //- Species mass fractions
-        PtrList<volScalarField> Y_;
-
-
-public:
-
-    // Constructors
-
-        //- Construct from dictionary, specie names, mesh and phase name
-        implementation
-        (
-            const dictionary&,
-            const wordList&,
-            const fvMesh&,
-            const word&
-        );
-
-
-    //- Destructor
-    virtual ~implementation();
-
-
-    // Member Functions
-
-        //- The table of species
-        virtual const speciesTable& species() const;
-
-        //- Access the mass-fraction fields
-        virtual PtrList<volScalarField>& Y();
-
-        //- Access the mass-fraction fields
-        virtual const PtrList<volScalarField>& Y() const;
-
-        //- Get the slicer
-        inline GeometricFieldListSlicer<scalar> Yslicer() const;
-
-        //- Get the composition of an internal cell
-        inline scalarFieldListSlice cellComposition
-        (
-            const GeometricFieldListSlicer<scalar>& Yslicer,
-            const label celli
-        ) const;
-
-        //- Get the composition of a boundary face
-        inline scalarFieldListSlice patchFaceComposition
-        (
-            const GeometricFieldListSlicer<scalar>& Yslicer,
-            const label patchi,
-            const label facei
-        ) const;
-
-        //- Get the slicer for the given source
-        inline DimensionedFieldListAndSlicer<scalar, fvMesh> Yslicer
-        (
-            const fvSource& model,
-            const volScalarField::Internal& source
-        ) const;
-
-        //- Get the composition of a source cell
-        inline scalarFieldListSlice sourceCellComposition
-        (
-            const DimensionedFieldListAndSlicer<scalar, fvMesh>& Yslicer,
-            const label i
-        ) const;
-
-        //- Get the slicer for the given source
-        inline PtrList<scalarField> Yslicer
-        (
-            const fvSource& model,
-            const scalarField& source,
-            const labelUList& cells
-        ) const;
-
-        //- Get the composition of a source cell
-        inline scalarFieldListSlice sourceCellComposition
-        (
-            const PtrList<scalarField>& Yslicer,
-            const label i
-        ) const;
-};
-
-
-/*---------------------------------------------------------------------------*\
-                Class psiuMulticomponentThermo::composite Declaration
-\*---------------------------------------------------------------------------*/
-
-class psiuMulticomponentThermo::composite
-:
-    public basicThermo::implementation,
-    public fluidThermo::implementation,
-    public psiThermo::implementation,
-    public psiuMulticomponentThermo::implementation
-{
-public:
-
-    // Constructors
-
-        //- Construct from dictionary, mesh and phase name
-        template<class MixtureType>
-        composite
-        (
-            const dictionary& dict,
-            const MixtureType& mixture,
-            const fvMesh& mesh,
-            const word& phaseName
-        )
-        :
-            basicThermo::implementation(dict, mesh, phaseName),
-            fluidThermo::implementation(dict, mesh, phaseName),
-            psiThermo::implementation(dict, mesh, phaseName),
-            psiuMulticomponentThermo::implementation
-            (
-                dict,
-                MixtureType::specieNames(),
-                mesh,
-                phaseName
-            )
-        {}
+        //- Disallow default bitwise assignment
+        void operator=(const PsiuMulticomponentThermo<BaseThermo>&) = delete;
 };
 
 
@@ -358,9 +174,11 @@ public:
 
 } // End namespace Foam
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
-#include "psiuMulticomponentThermoI.H"
+#ifdef NoRepository
+    #include "PsiuMulticomponentThermo.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

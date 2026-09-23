@@ -23,248 +23,210 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "LagrangianFieldsFwd.H"
-#include "multicomponentLagrangianThermo.H"
+#include "MulticomponentLagrangianThermo.H"
 
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
+// * * * * * * * * * * * * Protected Member Functions  * * * * * * * * * * * //
 
-namespace Foam
+template<class BaseThermo>
+template<class Method, class ... Args>
+Foam::tmp<Foam::LagrangianInternalScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::
+LagrangianInternalScalarFieldPropertyi
+(
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Method psiMethod,
+    const label speciei,
+    const Args& ... args
+) const
 {
-    defineTypeNameAndDebug(multicomponentLagrangianThermo, 0);
-    defineRunTimeSelectionTable(multicomponentLagrangianThermo, LagrangianMesh);
+    const typename BaseThermo::mixtureType::thermoType& thermo =
+        this->specieThermo(speciei);
+
+    tmp<LagrangianInternalScalarField> tPsi
+    (
+        LagrangianInternalScalarField::New
+        (
+            IOobject::groupName(psiName, this->group()),
+            this->mesh(),
+            psiDim
+        )
+    );
+    LagrangianInternalScalarField& psi = tPsi.ref();
+
+    forAll(psi, i)
+    {
+        psi[i] = (thermo.*psiMethod)(args[i] ...);
+    }
+
+    return tPsi;
 }
 
 
-// * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
-
-Foam::multicomponentLagrangianThermo::implementation::implementation
+template<class BaseThermo>
+template<class Method, class ... Args>
+Foam::tmp<Foam::LagrangianSubScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::
+LagrangianSubScalarFieldPropertyi
 (
-    const dictionary& dict,
-    const speciesTable& species,
-    const LagrangianMesh& mesh,
-    const word& phaseName
-)
-:
-    defaultSpecieName_
-    (
-        species.size()
-      ? dict.lookup<word>("defaultSpecie")
-      : "undefined"
-    ),
-    defaultSpeciei_
-    (
-        species.size()
-      ? species[defaultSpecieName_]
-      : -1
-    ),
-    Y_(species.size())
+    const LagrangianSubMesh& subMesh,
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Method psiMethod,
+    const label speciei,
+    const Args& ... args
+) const
 {
-    tmp<LagrangianScalarField> Ydefault;
+    const typename BaseThermo::mixtureType::thermoType& thermo =
+        this->specieThermo(speciei);
 
-    bool Yset = false;
-
-    // Read the species' mass fractions
-    forAll(species, i)
-    {
-        typeIOobject<LagrangianScalarDynamicField> io
+    tmp<LagrangianSubScalarField> tPsi
+    (
+        LagrangianSubScalarField::New
         (
-            IOobject::groupName(species[i], phaseName),
-            mesh.time().name(),
-            mesh,
-            IOobject::NO_READ
-        );
+            IOobject::groupName(subMesh.sub(psiName), this->group()),
+            subMesh,
+            psiDim
+        )
+    );
+    LagrangianSubScalarField& psi = tPsi.ref();
 
-        if (io.headerOk())
-        {
-            Y_.set
-            (
-                i,
-                new LagrangianScalarDynamicField
-                (
-                    IOobject
-                    (
-                        IOobject::groupName(species[i], phaseName),
-                        mesh.time().name(),
-                        mesh,
-                        IOobject::MUST_READ,
-                        IOobject::AUTO_WRITE
-                    ),
-                    mesh
-                )
-            );
-
-            Yset = true;
-        }
-        else
-        {
-            if (!Ydefault.valid())
-            {
-                Ydefault = new LagrangianScalarField
-                (
-                    IOobject
-                    (
-                        IOobject::groupName("Ydefault", phaseName),
-                        mesh.time().name(),
-                        mesh,
-                        IOobject::MUST_READ,
-                        IOobject::NO_WRITE
-                    ),
-                    mesh
-                );
-            }
-
-            Y_.set
-            (
-                i,
-                new LagrangianScalarDynamicField
-                (
-                    IOobject
-                    (
-                        IOobject::groupName(species[i], phaseName),
-                        mesh.time().name(),
-                        mesh,
-                        IOobject::NO_READ,
-                        IOobject::AUTO_WRITE
-                    ),
-                    Ydefault()
-                )
-            );
-        }
+    forAll(psi, subi)
+    {
+        psi[subi] = (thermo.*psiMethod)(args[subi] ...);
     }
 
-    // If the mass fractions have been specified check and normalise
-    if (Yset)
-    {
-        // Scale the mass fractions so that they sum to one in case the input is
-        // not exact
-        tmp<LagrangianScalarField> tYt
-        (
-            new LagrangianScalarField
-            (
-                IOobject::groupName("Yt", phaseName),
-                Y_[0]
-            )
-        );
-        LagrangianScalarField& Yt = tYt.ref();
-
-        for (label i = 1; i < Y_.size(); ++ i)
-        {
-            Yt += Y_[i];
-        }
-
-        if (min(Yt.primitiveField()) == 0 && max(Yt.primitiveField()) == 0)
-        {
-            FatalErrorInFunction
-                << "Sum of specie mass fractions = 0"
-                << exit(FatalError);
-        }
-
-        if (min(Yt.primitiveField()) < 0.999)
-        {
-            FatalErrorInFunction
-                << "Min sum of specie mass fractions "
-                << min(Yt.primitiveField())
-                << " < 0.999"
-                << exit(FatalError);
-        }
-
-        if (max(Yt.primitiveField()) > 1.001)
-        {
-            FatalErrorInFunction
-                << "Max sum of specie mass fractions "
-                << max(Yt.primitiveField())
-                << " > 1.001"
-                << exit(FatalError);
-        }
-
-        forAll(Y_, i)
-        {
-            Y_[i] /= Yt;
-        }
-    }
-}
-
-
-// * * * * * * * * * * * * * * * * Selectors * * * * * * * * * * * * * * * * //
-
-Foam::autoPtr<Foam::multicomponentLagrangianThermo>
-Foam::multicomponentLagrangianThermo::New
-(
-    const LagrangianMesh& mesh,
-    const word& phaseName
-)
-{
-    return
-        basicLagrangianThermo::New<multicomponentLagrangianThermo>
-        (
-            mesh,
-            phaseName
-        );
+    return tPsi;
 }
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::multicomponentLagrangianThermo::~multicomponentLagrangianThermo()
+template<class BaseThermo>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::
+~MulticomponentLagrangianThermo()
 {}
 
 
-Foam::multicomponentLagrangianThermo::implementation::~implementation()
-{}
+// * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * * //
 
-
-// * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
-
-Foam::label
-Foam::multicomponentLagrangianThermo::implementation::defaultSpecie() const
-{
-    return defaultSpeciei_;
-}
-
-
-Foam::PtrList<Foam::LagrangianScalarDynamicField>&
-Foam::multicomponentLagrangianThermo::implementation::Y()
-{
-    return Y_;
-}
-
-
-const Foam::PtrList<Foam::LagrangianScalarDynamicField>&
-Foam::multicomponentLagrangianThermo::implementation::Y() const
-{
-    return Y_;
-}
-
-
-void Foam::multicomponentLagrangianThermo::implementation::normaliseY
+template<class BaseThermo>
+Foam::dimensionedScalar Foam::MulticomponentLagrangianThermo<BaseThermo>::Wi
 (
-    const LagrangianSubMesh& subMesh
-)
+    const label speciei
+) const
 {
-    if (defaultSpeciei_ == -1 || !species().size()) return;
-
-    tmp<LagrangianSubScalarField> tYt
-    (
-        LagrangianSubScalarField::New
+    return
+        dimensionedScalar
         (
-            IOobject::groupName("Yt", phaseName()),
-            subMesh,
-            dimensionedScalar(dimless, 0)
-        )
+            "W",
+            dimMass/dimMoles,
+            this->specieThermo(speciei).W()
+        );
+}
+
+
+template<class BaseThermo>
+Foam::tmp<Foam::LagrangianSubScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::rhoi
+(
+    const label speciei,
+    const LagrangianSubScalarField& p,
+    const LagrangianSubScalarField& T
+) const
+{
+    return LagrangianSubScalarFieldPropertyi
+    (
+        p.mesh(),
+        "rho",
+        dimDensity,
+        &BaseThermo::mixtureType::thermoType::rho,
+        speciei,
+        p,
+        T
     );
-    LagrangianSubScalarField& Yt = tYt.ref();
+}
 
-    forAll(Y(), i)
-    {
-        if (i == defaultSpeciei_) continue;
 
-        LagrangianSubScalarSubField subYi(subMesh.sub(Y_[i]));
-        subYi = max(subYi, scalar(0));
-        Yt += subYi;
-    }
+template<class BaseThermo>
+Foam::tmp<Foam::LagrangianSubScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::hsi
+(
+    const label speciei,
+    const LagrangianSubScalarField& p,
+    const LagrangianSubScalarField& T
+) const
+{
+    return LagrangianSubScalarFieldPropertyi
+    (
+        p.mesh(),
+        "hs",
+        dimEnergy/dimMass,
+        &BaseThermo::mixtureType::thermoType::hs,
+        speciei,
+        p,
+        T
+    );
+}
 
-    LagrangianSubScalarSubField subYdefault(subMesh.sub(Y_[defaultSpeciei_]));
-    subYdefault = max(scalar(1) - Yt, scalar(0));
+
+template<class BaseThermo>
+Foam::dimensionedScalar Foam::MulticomponentLagrangianThermo<BaseThermo>::hfi
+(
+    const label speciei
+) const
+{
+    return
+        dimensionedScalar
+        (
+            "hf",
+            dimEnergy/dimMass,
+            this->specieThermo(speciei).hf()
+        );
+}
+
+
+template<class BaseThermo>
+Foam::tmp<Foam::LagrangianSubScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::Cvi
+(
+    const label speciei,
+    const LagrangianSubScalarField& p,
+    const LagrangianSubScalarField& T
+) const
+{
+    return LagrangianSubScalarFieldPropertyi
+    (
+        p.mesh(),
+        "Cv",
+        dimSpecificHeatCapacity,
+        &BaseThermo::mixtureType::thermoType::Cv,
+        speciei,
+        p,
+        T
+    );
+}
+
+
+template<class BaseThermo>
+Foam::tmp<Foam::LagrangianSubScalarField>
+Foam::MulticomponentLagrangianThermo<BaseThermo>::Cpi
+(
+    const label speciei,
+    const LagrangianSubScalarField& p,
+    const LagrangianSubScalarField& T
+) const
+{
+    return LagrangianSubScalarFieldPropertyi
+    (
+        p.mesh(),
+        "Cp",
+        dimSpecificHeatCapacity,
+        &BaseThermo::mixtureType::thermoType::Cp,
+        speciei,
+        p,
+        T
+    );
 }
 
 

@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2020-2023 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2023 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -22,25 +22,20 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::fluidMulticomponentThermo
+    Foam::FluidMulticomponentThermo
 
 Description
-    Base-class for multi-component fluid thermodynamic properties.
-
-See also
-    Foam::basicThermo
+    Fluid multi-component thermo implementation
 
 SourceFiles
-    fluidMulticomponentThermo.C
+    FluidMulticomponentThermo.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef fluidMulticomponentThermo_H
-#define fluidMulticomponentThermo_H
+#ifndef FluidMulticomponentThermo_H
+#define FluidMulticomponentThermo_H
 
-#include "fluidThermo.H"
-#include "multicomponentThermo.H"
-#include "FluidMulticomponentThermo.H"
+#include "BasicThermo.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -48,43 +43,30 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                     Class fluidMulticomponentThermo Declaration
+                       Class FluidMulticomponentThermo Declaration
 \*---------------------------------------------------------------------------*/
 
-class fluidMulticomponentThermo
+template<class BaseThermo>
+class FluidMulticomponentThermo
 :
-    virtual public fluidThermo,
-    virtual public multicomponentThermo
+    public BaseThermo
 {
 public:
 
-    //- Runtime type information
-    TypeName("fluidMulticomponentThermo");
+    // Constructors
 
+        //- Construct from mesh and phase name
+        FluidMulticomponentThermo(const fvMesh&, const word& phaseName);
 
-    //- Declare run-time constructor selection tables
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        fluidMulticomponentThermo,
-        fvMesh,
-        (const fvMesh& mesh, const word& phaseName),
-        (mesh, phaseName)
-    );
-
-
-    // Selectors
-
-        //- Standard selection based on fvMesh
-        static autoPtr<fluidMulticomponentThermo> New
+        //- Disallow default bitwise copy construction
+        FluidMulticomponentThermo
         (
-            const fvMesh&,
-            const word& phaseName=word::null
-        );
+            const FluidMulticomponentThermo<BaseThermo>&
+        ) = delete;
 
 
     //- Destructor
-    virtual ~fluidMulticomponentThermo();
+    virtual ~FluidMulticomponentThermo();
 
 
     // Member Functions
@@ -97,7 +79,7 @@ public:
                 const label speciei,
                 const scalar p,
                 const scalar T
-            ) const = 0;
+            ) const;
 
             //- Dynamic viscosity [kg/m/s]
             virtual tmp<volScalarField> mui
@@ -105,13 +87,25 @@ public:
                 const label speciei,
                 const volScalarField& p,
                 const volScalarField& T
-            ) const = 0;
+            ) const;
+
+
+    // Member Operators
+
+        //- Disallow default bitwise assignment
+        void operator=(const FluidMulticomponentThermo<BaseThermo>&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+#ifdef NoRepository
+    #include "FluidMulticomponentThermo.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

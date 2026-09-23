@@ -23,43 +23,87 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "uInhomogeneousMixture.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
-
-namespace Foam
-{
-    defineTypeNameAndDebug(uInhomogeneousMixture, 0);
-}
-
+#include "UInhomogeneousMixture.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::uInhomogeneousMixture::uInhomogeneousMixture
+template<class ThermoType>
+Foam::UInhomogeneousMixture<ThermoType>::UInhomogeneousMixture
 (
     const dictionary& dict
 )
 :
-    species_({"fu"}),
-    stoicRatio_(dict.lookup<scalar>("stoichiometricAirFuelMassRatio")),
-    active_(1, true)
+    uInhomogeneousMixture(dict),
+    fuel_("fuel", dict.subDict("fuel")),
+    oxidant_("oxidant", dict.subDict("oxidant")),
+    mixture_("mixture", fuel_)
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::uInhomogeneousMixture::Phi
+template<class ThermoType>
+const ThermoType& Foam::UInhomogeneousMixture<ThermoType>::mixture
 (
-    const scalarFieldListSlice& Yu
+    const scalar fu
 ) const
 {
-    return stoicRatio_*Yu[FU]/max(scalar(1) - Yu[FU], small);
+    if (fu < 0.0001)
+    {
+        return oxidant_;
+    }
+    else
+    {
+        const scalar ox = 1 - fu;
+
+        mixture_ = fu*fuel_;
+        mixture_ += ox*oxidant_;
+
+        return mixture_;
+    }
 }
 
 
-void Foam::uInhomogeneousMixture::read(const dictionary& dict)
+template<class ThermoType>
+const typename Foam::UInhomogeneousMixture<ThermoType>::thermoMixtureType&
+Foam::UInhomogeneousMixture<ThermoType>::thermoMixture
+(
+    const scalarFieldListSlice& Y
+) const
 {
-    stoicRatio_ = dict.lookup<scalar>("stoichiometricAirFuelMassRatio");
+    return mixture(Y[FU]);
+}
+
+
+template<class ThermoType>
+const typename Foam::UInhomogeneousMixture<ThermoType>::transportMixtureType&
+Foam::UInhomogeneousMixture<ThermoType>::transportMixture
+(
+    const scalarFieldListSlice& Y
+) const
+{
+    return mixture(Y[FU]);
+}
+
+
+template<class ThermoType>
+const typename Foam::UInhomogeneousMixture<ThermoType>::transportMixtureType&
+Foam::UInhomogeneousMixture<ThermoType>::transportMixture
+(
+    const scalarFieldListSlice&,
+    const thermoMixtureType& mixture
+) const
+{
+    return mixture;
+}
+
+
+template<class ThermoType>
+void Foam::UInhomogeneousMixture<ThermoType>::read(const dictionary& dict)
+{
+    uInhomogeneousMixture::read(dict);
+    fuel_ = ThermoType("fuel", dict.subDict("fuel"));
+    oxidant_ = ThermoType("oxidant", dict.subDict("oxidant"));
 }
 
 

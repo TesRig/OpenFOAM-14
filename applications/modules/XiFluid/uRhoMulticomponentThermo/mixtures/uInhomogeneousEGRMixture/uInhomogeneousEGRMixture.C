@@ -23,44 +23,117 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "uInhomogeneousEGRMixture.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
-
-namespace Foam
-{
-    defineTypeNameAndDebug(uInhomogeneousEGRMixture, 0);
-}
-
+#include "UInhomogeneousEGRMixture.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::uInhomogeneousEGRMixture::uInhomogeneousEGRMixture
+template<class ThermoType>
+Foam::UInhomogeneousEGRMixture<ThermoType>::UInhomogeneousEGRMixture
 (
     const dictionary& dict
 )
 :
-    species_({"fu", "egr"}),
-    stoicRatio_(dict.lookup<scalar>("stoichiometricAirFuelMassRatio")),
-    active_(2, true)
+    uInhomogeneousEGRMixture(dict),
+    fuel_("fuel", dict.subDict("fuel")),
+    oxidant_("oxidant", dict.subDict("oxidant")),
+    products_("products", dict.subDict("products")),
+    mixture_("mixture", fuel_)
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-Foam::scalar Foam::uInhomogeneousEGRMixture::Phi
+template<class ThermoType>
+const ThermoType& Foam::UInhomogeneousEGRMixture<ThermoType>::specieThermo
 (
-    const scalarFieldListSlice& Yu
+    const label speciei
 ) const
 {
-    const scalar ft = Yu[FU] + Yu[EGR]/(stoicRatio_ + 1);
-    return stoicRatio_*ft/max(1 - ft, small);
+    switch (speciei)
+    {
+        case FU:
+            return fuel_;
+            break;
+
+        case EGR:
+            return products_;
+            break;
+
+        default:
+            FatalErrorInFunction
+                << "Cannot return specieThermo for specie " << speciei
+                << exit(FatalError);
+            return products_;
+            break;
+    }
 }
 
 
-void Foam::uInhomogeneousEGRMixture::read(const dictionary& dict)
+template<class ThermoType>
+const ThermoType& Foam::UInhomogeneousEGRMixture<ThermoType>::mixture
+(
+    const scalar fu,
+    const scalar egr
+) const
 {
-    stoicRatio_ = dict.lookup<scalar>("stoichiometricAirFuelMassRatio");
+    if (fu < 0.0001 && egr < 0.0001)
+    {
+        return oxidant_;
+    }
+    else
+    {
+        const scalar ox = 1 - fu - egr;
+
+        mixture_ = fu*fuel_;
+        mixture_ += ox*oxidant_;
+        mixture_ += egr*products_;
+
+        return mixture_;
+    }
+}
+
+
+template<class ThermoType>
+const typename Foam::UInhomogeneousEGRMixture<ThermoType>::thermoMixtureType&
+Foam::UInhomogeneousEGRMixture<ThermoType>::thermoMixture
+(
+    const scalarFieldListSlice& Y
+) const
+{
+    return mixture(Y[FU], Y[EGR]);
+}
+
+
+template<class ThermoType>
+const typename Foam::UInhomogeneousEGRMixture<ThermoType>::transportMixtureType&
+Foam::UInhomogeneousEGRMixture<ThermoType>::transportMixture
+(
+    const scalarFieldListSlice& Y
+) const
+{
+    return mixture(Y[FU], Y[EGR]);
+}
+
+
+template<class ThermoType>
+const typename Foam::UInhomogeneousEGRMixture<ThermoType>::transportMixtureType&
+Foam::UInhomogeneousEGRMixture<ThermoType>::transportMixture
+(
+    const scalarFieldListSlice&,
+    const thermoMixtureType& mixture
+) const
+{
+    return mixture;
+}
+
+
+template<class ThermoType>
+void Foam::UInhomogeneousEGRMixture<ThermoType>::read(const dictionary& dict)
+{
+    uInhomogeneousEGRMixture::read(dict);
+    fuel_ = ThermoType("fuel", dict.subDict("fuel"));
+    oxidant_ = ThermoType("oxidant", dict.subDict("oxidant"));
+    products_ = ThermoType("products", dict.subDict("products"));
 }
 
 

@@ -22,23 +22,24 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::bMulticomponentMixture
+    Foam::BMulticomponentMixture
 
 Description
-    Burnt gas combustion multicomponent mixture
+    Templated burnt gas combustion multicomponent mixture
 
-    to provide composition support for burnt chemistry integration for
-    pollutant simulations.
+See also
+    Foam::bMulticomponentMixture
 
 SourceFiles
-    bMulticomponentMixture.C
+    BMulticomponentMixture.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef bMulticomponentMixture_H
-#define bMulticomponentMixture_H
+#ifndef BMulticomponentMixture_H
+#define BMulticomponentMixture_H
 
-#include "bMixture.H"
+#include "coefficientMulticomponentMixture.H"
+#include "bMulticomponentMixture.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -46,48 +47,57 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                    Class bMulticomponentMixture Declaration
+                    Class BMulticomponentMixture Declaration
 \*---------------------------------------------------------------------------*/
 
-class bMulticomponentMixture
+template<class ThermoType>
+class BMulticomponentMixture
 :
-    public bMixture
+    public coefficientMulticomponentMixture<ThermoType>,
+    public bMulticomponentMixture
 {
 
 public:
 
-    //- Runtime type information
-    ClassName("bMulticomponent");
-
-
     // Constructors
 
         //- Construct from a dictionary
-        bMulticomponentMixture(const dictionary&);
+        BMulticomponentMixture(const dictionary&);
 
         //- Disallow default bitwise copy construction
-        bMulticomponentMixture(const bMulticomponentMixture&) = delete;
+        BMulticomponentMixture
+        (
+            const BMulticomponentMixture<ThermoType>&
+        ) = delete;
 
 
     // Member Functions
 
-        //- Return the mixture type name
-        virtual const word& mixtureType() const
+        //- Return the instantiated type name
+        static word typeName()
         {
-            return typeName;
+            return
+                bMulticomponentMixture::typeName
+              + '<' + ThermoType::typeName() + '>';
         }
 
 
     // Member Operators
 
         //- Disallow default bitwise assignment
-        void operator=(const bMulticomponentMixture&) = delete;
+        void operator=(const BMulticomponentMixture<ThermoType>&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "BMulticomponentMixture.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

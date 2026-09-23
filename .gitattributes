@@ -1,3 +1,7 @@
 **.C linguist-language=C++
 **.H linguist-language=C++
 **.L linguist-language=Lex
+*.sh text eol=lf
+tools/runtime/linux/* text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

@@ -87,3 +87,8 @@ doc/Doxygen/DTAGS
 
 # Ignore the tutorialsTest directory
 /tutorialsTest
+
+# Portable build products and local source staging
+/dist
+/.source-sync
+/.build-*.log

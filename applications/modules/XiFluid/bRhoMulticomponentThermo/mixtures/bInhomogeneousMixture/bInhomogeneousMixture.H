@@ -22,26 +22,24 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::bInhomogeneousMixture
+    Foam::BInhomogeneousMixture
 
 Description
-    Burnt gas combustion mixture for inhomogeneous lean, stoichiometric
-    or rich conditions
-
-    in which the unburnt fuel mass-fraction \c ft (mixture fraction) defines the
-    composition.
+    Templated burnt gas combustion mixture for inhomogeneous lean,
+    stoichiometric or rich conditions.
 
 SourceFiles
-    bInhomogeneousMixture.C
+    BInhomogeneousMixture.C
+
+See also
+    Foam::bInhomogeneousMixture
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef bInhomogeneousMixture_H
-#define bInhomogeneousMixture_H
+#ifndef BInhomogeneousMixture_H
+#define BInhomogeneousMixture_H
 
-#include "bMixture.H"
-#include "speciesTable.H"
-#include "boolList.H"
+#include "bInhomogeneousMixture.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -49,75 +47,101 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                    Class bInhomogeneousMixture Declaration
+                    Class BInhomogeneousMixture Declaration
 \*---------------------------------------------------------------------------*/
 
-class bInhomogeneousMixture
+template<class ThermoType>
+class BInhomogeneousMixture
 :
-    public bMixture
+    public bInhomogeneousMixture
 {
-protected:
+public:
 
-    // Protected Data
+    // Public Typedefs
 
-        //- Table of specie names
-        speciesTable species_;
+        //- The type of thermodynamics this mixture is instantiated for
+        typedef ThermoType thermoType;
 
-        //- Stoichiometric air/fuel ratio
-        scalar stoicRatio_;
+        //- Mixing type for thermodynamic properties
+        typedef ThermoType thermoMixtureType;
 
-        //- List of specie active flags
-        boolList active_;
+        //- Mixing type for transport properties
+        typedef ThermoType transportMixtureType;
+
+
+private:
+
+    // Private Data
+
+        //- Fuel thermodynamic model
+        thermoType fuel_;
+
+        //- Oxidant thermodynamic model
+        thermoType oxidant_;
+
+        //- Product thermodynamic model
+        thermoType products_;
+
+        //- Mutable storage for the mixed thermodynamic model
+        mutable thermoType mixture_;
+
+
+    // Private Member Functions
+
+        //- Return the mixture for the given composition
+        const thermoType& mixture(const scalar ft) const;
 
 
 public:
 
-    //- Runtime type information
-    ClassName("bInhomogeneous");
-
-    //- Specie indices
-    enum species { FT };
-
-
     // Constructors
 
         //- Construct from a dictionary
-        bInhomogeneousMixture(const dictionary&);
+        BInhomogeneousMixture(const dictionary&);
 
         //- Disallow default bitwise copy construction
-        bInhomogeneousMixture(const bInhomogeneousMixture&) = delete;
-
-
-    //- Destructor
-    virtual ~bInhomogeneousMixture()
-    {}
+        BInhomogeneousMixture
+        (
+            const BInhomogeneousMixture<ThermoType>&
+        ) = delete;
 
 
     // Member Functions
 
-        //- Return the mixture type name
-        virtual const word& mixtureType() const
+        //- Return the instantiated type name
+        static word typeName()
         {
-            return typeName;
+            return
+                bInhomogeneousMixture::typeName
+              + '<' + ThermoType::typeName() + '>';
         }
 
-        //- Return the table of species
-        const speciesTable& species() const
+        inline const ThermoType& specieThermo(const label speciei) const
         {
-            return species_;
+            FatalErrorInFunction
+                << "Cannot return specieThermo for specie " << speciei << " ft "
+                << exit(FatalError);
+            return products_;
         }
 
-        //- Access the specie active flags
-        const boolList& speciesActive() const
-        {
-            return active_;
-        }
+        //- Return the mixture for thermodynamic properties
+        const thermoMixtureType& thermoMixture
+        (
+            const scalarFieldListSlice&
+        ) const;
 
-        //- Access the specie active flags
-        boolList& speciesActive()
-        {
-            return active_;
-        }
+        //- Return the mixture for transport properties
+        const transportMixtureType& transportMixture
+        (
+            const scalarFieldListSlice&
+        ) const;
+
+        //- Return the mixture for transport properties
+        const transportMixtureType& transportMixture
+        (
+            const scalarFieldListSlice&,
+            const thermoMixtureType&
+        ) const;
 
         //- Read dictionary
         void read(const dictionary&);
@@ -126,13 +150,19 @@ public:
     // Member Operators
 
         //- Disallow default bitwise assignment
-        void operator=(const bInhomogeneousMixture&) = delete;
+        void operator=(const BInhomogeneousMixture<ThermoType>&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "BInhomogeneousMixture.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

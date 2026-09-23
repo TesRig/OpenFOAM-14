@@ -22,20 +22,20 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::noPreconditioner
+    Foam::NoPreconditioner
 
 Description
     Null preconditioner for both symmetric and asymmetric matrices.
 
 SourceFiles
-    noPreconditioner.C
+    NoPreconditioner.C
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef noPreconditioner_H
-#define noPreconditioner_H
+#ifndef NoPreconditioner_H
+#define NoPreconditioner_H
 
-#include "lduMatrix.H"
+#include "LduMatrix.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -43,12 +43,13 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                      Class noPreconditioner Declaration
+                      Class NoPreconditioner Declaration
 \*---------------------------------------------------------------------------*/
 
-class noPreconditioner
+template<class Type, class DType, class LUType>
+class NoPreconditioner
 :
-    public lduMatrix::preconditioner
+    public LduMatrix<Type, DType, LUType>::preconditioner
 {
 
 public:
@@ -59,54 +60,64 @@ public:
 
     // Constructors
 
-        //- Construct from matrix components and preconditioner solver controls
-        noPreconditioner
+        //- Construct from matrix components and preconditioner data dictionary
+        NoPreconditioner
         (
-            const lduMatrix::solver&,
-            const dictionary& solverControlsUnused
+            const typename LduMatrix<Type, DType, LUType>::solver& sol,
+            const dictionary& preconditionerDict
         );
 
         //- Disallow default bitwise copy construction
-        noPreconditioner(const noPreconditioner&) = delete;
+        NoPreconditioner(const NoPreconditioner&) = delete;
 
 
-    //- Destructor
-    virtual ~noPreconditioner()
-    {}
+    // Destructor
+
+        virtual ~NoPreconditioner()
+        {}
 
 
     // Member Functions
 
+        //- Read and reset the preconditioner parameters from the given
+        //  dictionary
+        virtual void read(const dictionary& preconditionerDict);
+
         //- Return wA the preconditioned form of residual rA
         virtual void precondition
         (
-            scalarField& wA,
-            const scalarField& rA,
-            const direction cmpt=0
+            Field<Type>& wA,
+            const Field<Type>& rA
         ) const;
 
-        //- Return wT the transpose-matrix preconditioned form of residual rT.
+        //- Return wT the transpose-matrix preconditioned form of
+        //  residual rT.
         virtual void preconditionT
         (
-            scalarField& wT,
-            const scalarField& rT,
-            const direction cmpt=0
+            Field<Type>& wT,
+            const Field<Type>& rT
         ) const
         {
-            return precondition(wT, rT, cmpt);
+            return(precondition(wT, rT));
         }
 
 
     // Member Operators
 
         //- Disallow default bitwise assignment
-        void operator=(const noPreconditioner&) = delete;
+        void operator=(const NoPreconditioner&) = delete;
 };
 
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 } // End namespace Foam
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+#ifdef NoRepository
+    #include "NoPreconditioner.C"
+#endif
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 

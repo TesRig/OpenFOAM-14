@@ -1,0 +1,4 @@
+AmgXSolver.C
+
+LIB = $(FOAM_LIBBIN)/libamgxFoam
+

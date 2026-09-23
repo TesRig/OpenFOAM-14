@@ -22,113 +22,38 @@ License
     along with OpenFOAM.  If not, see <http://www.gnu.org/licenses/>.
 
 Class
-    Foam::parcelCloud
+    Foam::ParcelCloud
 
 Description
-    Virtual abstract base class for parcel clouds. As parcelCloudBase but with
-    additional virtualisation of the evolve method, plus some additional
-    methods that are defined below the parcel-cloud layer (i.e., in Cloud).
-    These methods are implemented by forwarding in the ParcelCloud class.
-
-    This class contains the selection table and represents the high level
-    interface used by a solver.
-
-SourceFiles
-    parcelCloud.C
+    Outermost template for parcel clouds. Adds the parcelCloud virtualisation
+    layer and forwards the methods required by that layer.
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef parcelCloud_H
-#define parcelCloud_H
+#ifndef ParcelCloud_H
+#define ParcelCloud_H
 
-#include "parcelCloudBase.H"
+#include "parcelCloud.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
 {
 
-class fluidThermo;
-
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-class parcelCloud
+template<class CloudType>
+class ParcelCloud
 :
-    virtual public parcelCloudBase
+    public CloudType,
+    virtual public parcelCloud
 {
 public:
 
-    //- Runtime type information
-    TypeName("parcelCloud");
-
-
-    // Declare viscosity-based runtime construction
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        parcelCloud,
-        viscosity,
-        (
-            const word& name,
-            const volScalarField& rho,
-            const volVectorField& U,
-            const volScalarField& mu,
-            const dimensionedVector& g
-        ),
-        (name, rho, U, mu, g)
-    );
-
-    // Declare thermo-based runtime construction
-    declareRunTimeSelectionTable
-    (
-        autoPtr,
-        parcelCloud,
-        thermo,
-        (
-            const word& name,
-            const volScalarField& rho,
-            const volVectorField& U,
-            const dimensionedVector& g,
-            const fluidThermo& carrierThermo
-        ),
-        (name, rho, U, g, carrierThermo)
-    );
-
-
     // Constructors
 
-        //- Null constructor
-        parcelCloud();
-
-        //- Disallow default bitwise copy construction
-        parcelCloud(const parcelCloud&) = delete;
-
-
-    //- Selectors
-
-        //- Select and construct with given carrier fields
-        static autoPtr<parcelCloud> New
-        (
-            const word& name,
-            const volScalarField& rho,
-            const volVectorField& U,
-            const volScalarField& mu,
-            const dimensionedVector& g
-        );
-
-        //- Select and construct with given carrier fields and thermo
-        static autoPtr<parcelCloud> New
-        (
-            const word& name,
-            const volScalarField& rho,
-            const volVectorField& U,
-            const dimensionedVector& g,
-            const fluidThermo& carrierThermo
-        );
-
-
-    //- Destructor
-    virtual ~parcelCloud();
+        //- Inherit base constructors
+        using CloudType::CloudType;
 
 
     // Member Functions
@@ -137,40 +62,43 @@ public:
 
             //- Call this before a topology change. Stores the particles global
             //  positions in the database for use during mapping.
-            virtual void storeGlobalPositions() = 0;
+            virtual void storeGlobalPositions()
+            {
+                CloudType::storeGlobalPositions();
+            }
 
             //- Update topology using the given map
-            virtual void topoChange(const polyTopoChangeMap&)
+            virtual void topoChange(const polyTopoChangeMap& map)
             {
-                NotImplemented;
+                CloudType::topoChange(map);
             }
 
             //- Update from another mesh using the given map
-            virtual void mapMesh(const polyMeshMap&)
+            virtual void mapMesh(const polyMeshMap& map)
             {
-                NotImplemented;
+                CloudType::mapMesh(map);
             }
 
             //- Redistribute or update using the given distribution map
             virtual void distribute(const polyDistributionMap& map)
             {
-                NotImplemented;
+                CloudType::distribute(map);
             }
 
 
         // Evolution
 
             //- Evolve the cloud
-            virtual void evolve() = 0;
+            virtual void evolve()
+            {
+                CloudType::evolve();
+            }
 
             //- Does this cloud provide source terms to the carrier?
-            virtual bool coupled() = 0;
-
-
-    // Member Operators
-
-        //- Disallow default bitwise assignment
-        void operator=(const parcelCloud&) = delete;
+            virtual bool coupled()
+            {
+                return CloudType::solution().coupled();
+            }
 };
 
 

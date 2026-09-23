@@ -2,7 +2,7 @@
   =========                 |
   \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \\    /   O peration     | Website:  https://openfoam.org
-    \\  /    A nd           | Copyright (C) 2011-2026 OpenFOAM Foundation
+    \\  /    A nd           | Copyright (C) 2011-2025 OpenFOAM Foundation
      \\/     M anipulation  |
 -------------------------------------------------------------------------------
 License
@@ -23,377 +23,913 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "basicThermo.H"
-#include "zeroGradientFvPatchFields.H"
-#include "fixedEnergyFvPatchScalarField.H"
+#include "BasicThermo.H"
 #include "gradientEnergyFvPatchScalarField.H"
-#include "gradientEnergyCalculatedTemperatureFvPatchScalarField.H"
 #include "mixedEnergyFvPatchScalarField.H"
-#include "mixedEnergyCalculatedTemperatureFvPatchScalarField.H"
-#include "fixedJumpFvPatchFields.H"
-#include "energyJumpFvPatchScalarField.H"
-#include "energyFvScalarFieldSource.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
-
-namespace Foam
-{
-    defineTypeNameAndDebug(basicThermo, 0);
-    defineRunTimeSelectionTable(basicThermo, fvMesh);
-}
-
-
-// * * * * * * * * * * * Private Static Member Functions * * * * * * * * * * //
-
-Foam::word Foam::basicThermo::mixtureName
-(
-    const Foam::dictionary& thermoTypeDict
-)
-{
-    return
-        thermoTypeDict.lookup<Foam::word>("mixture")
-       .replace("multiComponent", "multicomponent");
-}
-
-
-// * * * * * * * * * * * * * Static Member Functions * * * * * * * * * * * * //
-
-Foam::volScalarField& Foam::basicThermo::lookupOrConstruct
-(
-    const fvMesh& mesh,
-    const char* name
-)
-{
-    if (!mesh.objectRegistry::foundObject<volScalarField>(name))
-    {
-        volScalarField* fPtr
-        (
-            new volScalarField
-            (
-                IOobject
-                (
-                    name,
-                    mesh.time().name(),
-                    mesh,
-                    IOobject::MUST_READ,
-                    IOobject::AUTO_WRITE
-                ),
-                mesh
-            )
-        );
-
-        // Transfer ownership of this object to the objectRegistry
-        fPtr->store(fPtr);
-    }
-
-    return mesh.objectRegistry::lookupObjectRef<volScalarField>(name);
-}
-
-
-Foam::wordList Foam::basicThermo::splitThermoName
-(
-    const word& thermoName,
-    const int nCmpt
-)
-{
-    wordList cmpts(nCmpt);
-
-    string::size_type beg=0, end=0, endb=0, endc=0;
-    int i = 0;
-
-    while
-    (
-        (endb = thermoName.find('<', beg)) != string::npos
-     || (endc = thermoName.find(',', beg)) != string::npos
-    )
-    {
-        if (endb == string::npos)
-        {
-            end = endc;
-        }
-        else if ((endc = thermoName.find(',', beg)) != string::npos)
-        {
-            end = min(endb, endc);
-        }
-        else
-        {
-            end = endb;
-        }
-
-        if (beg < end)
-        {
-            cmpts[i] = thermoName.substr(beg, end-beg);
-            cmpts[i++].replaceAll(">","");
-
-            // If the number of number of components in the name
-            // is greater than nCmpt return an empty list
-            if (i == nCmpt)
-            {
-                return wordList();
-            }
-        }
-        beg = end + 1;
-    }
-
-    // If the number of number of components in the name is not equal to nCmpt
-    // return an empty list
-    if (i + 1 != nCmpt)
-    {
-        return wordList();
-    }
-
-    if (beg < thermoName.size())
-    {
-        cmpts[i] = thermoName.substr(beg, string::npos);
-        cmpts[i].replaceAll(">","");
-    }
-
-    return cmpts;
-}
-
-
-Foam::List<Foam::Pair<Foam::word>> Foam::basicThermo::thermoNameComponents
-(
-    const word& thermoName
-)
-{
-    const wordList components(splitThermoName(thermoName, 5));
-
-    return List<Pair<word>>
-    {
-        {"transport", components[0]},
-        {"thermo", components[1]},
-        {"equationOfState", components[2]},
-        {"specie", components[3]},
-        {"energy", components[4]}
-    };
-}
-
 
 // * * * * * * * * * * * * Protected Member Functions  * * * * * * * * * * * //
 
-Foam::wordList Foam::basicThermo::heBoundaryBaseTypes()
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::volScalarFieldProperty
+(
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Mixture mixture,
+    Method psiMethod,
+    const Args& ... args
+) const
 {
-    const volScalarField::Boundary& tbf = T().boundaryField();
+    tmp<volScalarField> tPsi
+    (
+        volScalarField::New
+        (
+            IOobject::groupName(psiName, this->group()),
+            this->mesh(),
+            psiDim
+        )
+    );
+    volScalarField& psi = tPsi.ref();
 
-    wordList hbt(tbf.size(), word::null);
+    auto Yslicer = this->Yslicer();
 
-    forAll(tbf, patchi)
+    forAll(psi, celli)
     {
-        if (tbf[patchi].overridesConstraint())
+        auto composition = this->cellComposition(Yslicer, celli);
+
+        psi[celli] =
+            ((this->*mixture)(composition).*psiMethod)(args[celli] ...);
+    }
+
+    volScalarField::Boundary& psiBf = psi.boundaryFieldRef();
+
+    forAll(psiBf, patchi)
+    {
+        forAll(psiBf[patchi], patchFacei)
         {
-            hbt[patchi] = tbf[patchi].patch().type();
+            auto composition =
+                this->patchFaceComposition(Yslicer, patchi, patchFacei);
+
+            psiBf[patchi][patchFacei] =
+                ((this->*mixture)(composition).*psiMethod)
+                (
+                    args.boundaryField()[patchi][patchFacei] ...
+                );
         }
     }
 
-    return hbt;
+    return tPsi;
 }
 
 
-Foam::wordList Foam::basicThermo::heBoundaryTypes()
+template<class MixtureType, class BasicThermoType>
+template<class Method, class ... Args>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::volScalarFieldMixtureProperty
+(
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Method mixtureMethod,
+    const Args& ... args
+) const
 {
-    const volScalarField::Boundary& tbf = T().boundaryField();
+    tmp<volScalarField> tPsi
+    (
+        volScalarField::New
+        (
+            IOobject::groupName(psiName, this->group()),
+            this->mesh(),
+            psiDim
+        )
+    );
+    volScalarField& psi = tPsi.ref();
 
-    wordList hbt = tbf.types();
+    auto Yslicer = this->Yslicer();
 
-    forAll(tbf, patchi)
+    forAll(psi, celli)
     {
-        if (isA<fixedValueFvPatchScalarField>(tbf[patchi]))
+        auto composition = this->cellComposition(Yslicer, celli);
+
+        psi[celli] = (this->*mixtureMethod)(composition, args ...);
+    }
+
+    volScalarField::Boundary& psiBf = psi.boundaryFieldRef();
+
+    forAll(psiBf, patchi)
+    {
+        forAll(psiBf[patchi], patchFacei)
         {
-            hbt[patchi] = fixedEnergyFvPatchScalarField::typeName;
-        }
-        else if
-        (
-            isA<zeroGradientFvPatchScalarField>(tbf[patchi])
-         || isA<fixedGradientFvPatchScalarField>(tbf[patchi])
-         || isA<gradientEnergyCalculatedTemperatureFvPatchScalarField>
-            (
-                tbf[patchi]
-            )
-        )
-        {
-            hbt[patchi] = gradientEnergyFvPatchScalarField::typeName;
-        }
-        else if
-        (
-            isA<mixedFvPatchScalarField>(tbf[patchi])
-         || isA<mixedEnergyCalculatedTemperatureFvPatchScalarField>
-            (
-                tbf[patchi]
-            )
-        )
-        {
-            hbt[patchi] = mixedEnergyFvPatchScalarField::typeName;
-        }
-        else if (isA<jumpCyclicFvPatchScalarField>(tbf[patchi]))
-        {
-            hbt[patchi] = energyJumpFvPatchScalarField::typeName;
+            auto composition =
+                this->patchFaceComposition(Yslicer, patchi, patchFacei);
+
+            psiBf[patchi][patchFacei] =
+                (this->*mixtureMethod)
+                (
+                    composition,
+                    args.boundaryField()[patchi][patchFacei] ...
+                );
         }
     }
 
-    return hbt;
+    return tPsi;
 }
 
 
-Foam::HashTable<Foam::word> Foam::basicThermo::heSourcesTypes()
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::volInternalScalarFieldProperty
+(
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Mixture mixture,
+    Method psiMethod,
+    const Args& ... args
+) const
 {
-    const HashTable<word> tst = T().sources().types();
+    tmp<volScalarField::Internal> tPsi
+    (
+        volScalarField::Internal::New
+        (
+            IOobject::groupName(psiName, this->group()),
+            this->mesh(),
+            psiDim
+        )
+    );
+    volScalarField::Internal& psi = tPsi.ref();
 
-    HashTable<word> hst;
-    forAllConstIter(typename HashTable<word>, tst, iter)
+    auto Yslicer = this->Yslicer();
+
+    forAll(psi, celli)
     {
-        hst.set(iter.key(), energyFvScalarFieldSource::typeName);
+        auto composition = this->cellComposition(Yslicer, celli);
+
+        psi[celli] =
+            ((this->*mixture)(composition).*psiMethod)(args[celli] ...);
     }
 
-    return hst;
+    return tPsi;
+}
+
+
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::cellSetProperty
+(
+    Mixture mixture,
+    Method psiMethod,
+    const labelList& cells,
+    const Args& ... args
+) const
+{
+    // Note: Args are fields for the set, not for the mesh as a whole. The
+    // cells list is only used to get the mixture.
+
+    tmp<scalarField> tPsi(new scalarField(cells.size()));
+    scalarField& psi = tPsi.ref();
+
+    auto Yslicer = this->Yslicer();
+
+    forAll(cells, i)
+    {
+        auto composition = this->cellComposition(Yslicer, cells[i]);
+
+        psi[i] = ((this->*mixture)(composition).*psiMethod)(args[i] ...);
+    }
+
+    return tPsi;
+}
+
+
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::patchFieldProperty
+(
+    Mixture mixture,
+    Method psiMethod,
+    const label patchi,
+    const Args& ... args
+) const
+{
+    tmp<scalarField> tPsi
+    (
+        new scalarField(this->T_.boundaryField()[patchi].size())
+    );
+    scalarField& psi = tPsi.ref();
+
+    auto Yslicer = this->Yslicer();
+
+    forAll(psi, patchFacei)
+    {
+        auto composition =
+            this->patchFaceComposition(Yslicer, patchi, patchFacei);
+
+        psi[patchFacei] =
+            ((this->*mixture)(composition).*psiMethod)(args[patchFacei] ...);
+    }
+
+    return tPsi;
+}
+
+
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::fieldSourceProperty
+(
+    const word& psiName,
+    const dimensionSet& psiDim,
+    Mixture mixture,
+    Method psiMethod,
+    const fvSource& model,
+    const volScalarField::Internal& source,
+    const Args& ... args
+) const
+{
+    tmp<volScalarField::Internal> tPsi
+    (
+        volScalarField::Internal::New
+        (
+            IOobject::groupName(psiName, this->group()),
+            this->mesh(),
+            psiDim
+        )
+    );
+    volScalarField::Internal& psi = tPsi.ref();
+
+    auto Yslicer = this->Yslicer(model, source);
+
+    forAll(psi, celli)
+    {
+        auto composition = this->sourceCellComposition(Yslicer, celli);
+
+        psi[celli] =
+            ((this->*mixture)(composition).*psiMethod)(args[celli] ...);
+    }
+
+    return tPsi;
+}
+
+
+template<class MixtureType, class BasicThermoType>
+template<class Mixture, class Method, class ... Args>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::fieldSourceProperty
+(
+    Mixture mixture,
+    Method psiMethod,
+    const fvSource& model,
+    const scalarField& source,
+    const labelUList& cells,
+    const Args& ... args
+) const
+{
+    tmp<scalarField> tPsi(new scalarField(cells.size()));
+    scalarField& psi = tPsi.ref();
+
+    auto Yslicer = this->Yslicer(model, source, cells);
+
+    forAll(cells, i)
+    {
+        auto composition =
+            this->sourceCellComposition(Yslicer, i);
+
+        psi[i] =
+            ((this->*mixture)(composition).*psiMethod)(args[i] ...);
+    }
+
+    return tPsi;
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::UIndirectList<Foam::scalar>
+Foam::BasicThermo<MixtureType, BasicThermoType>::cellSetScalarList
+(
+    const volScalarField& psi,
+    const labelUList& cells
+)
+{
+    return UIndirectList<scalar>(psi, cells);
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::UniformField<Foam::scalar>
+Foam::BasicThermo<MixtureType, BasicThermoType>::cellSetScalarList
+(
+    const uniformGeometricScalarField& psi,
+    const labelUList&
+)
+{
+    return psi.primitiveField();
+}
+
+
+template<class MixtureType, class BasicThermoType>
+void Foam::BasicThermo<MixtureType, BasicThermoType>::heBoundaryCorrection
+(
+    volScalarField& h
+)
+{
+    volScalarField::Boundary& hBf = h.boundaryFieldRef();
+
+    forAll(hBf, patchi)
+    {
+        if (isA<gradientEnergyFvPatchScalarField>(hBf[patchi]))
+        {
+            refCast<gradientEnergyFvPatchScalarField>(hBf[patchi]).gradient() =
+                hBf[patchi].fvPatchField::snGrad();
+        }
+        else if (isA<mixedEnergyFvPatchScalarField>(hBf[patchi]))
+        {
+            refCast<mixedEnergyFvPatchScalarField>(hBf[patchi]).refGrad() =
+                hBf[patchi].fvPatchField::snGrad();
+        }
+    }
 }
 
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::basicThermo::implementation::implementation
+template<class MixtureType, class BasicThermoType>
+Foam::BasicThermo<MixtureType, BasicThermoType>::BasicThermo
 (
-    const dictionary& dict,
     const fvMesh& mesh,
     const word& phaseName
 )
 :
-    mesh_(mesh),
-
-    phaseName_(phaseName),
-
-    T_
+    physicalProperties(mesh, phaseName),
+    MixtureType(properties()),
+    BasicThermoType
     (
-        IOobject
-        (
-            phasePropertyName("T", phaseName),
-            mesh.time().name(),
-            mesh,
-            IOobject::MUST_READ,
-            IOobject::AUTO_WRITE
-        ),
+        properties(),
+        static_cast<const MixtureType&>(*this),
         mesh,
-        dimensions::temperature
+        phaseName
     ),
 
-    kappa_
+    he_
     (
         IOobject
         (
-            phasePropertyName("kappa", phaseName),
+            BasicThermoType::phasePropertyName
+            (
+                MixtureType::thermoType::heName(),
+                phaseName
+            ),
             mesh.time().name(),
             mesh,
-            IOobject::READ_IF_PRESENT,
+            IOobject::NO_READ,
             IOobject::NO_WRITE
         ),
-        mesh,
-        dimensionedScalar(dimensions::thermalConductivity, Zero)
+        volScalarFieldProperty
+        (
+            "he",
+            dimEnergy/dimMass,
+            &MixtureType::thermoMixture,
+            &MixtureType::thermoMixtureType::he,
+            this->p_,
+            this->T_
+        ),
+        this->heBoundaryTypes(),
+        this->heBoundaryBaseTypes(),
+        this->heSourcesTypes(),
+        this->T_.sources().errorLocation()
     ),
 
-    dpdt_(dict.lookupOrDefault<Switch>("dpdt", true))
-{}
+    Cp_
+    (
+        IOobject
+        (
+            BasicThermoType::phasePropertyName("Cp", phaseName),
+            mesh.time().name(),
+            mesh
+        ),
+        mesh,
+        dimensionedScalar(dimEnergy/dimMass/dimTemperature, Zero)
+    ),
 
-
-// * * * * * * * * * * * * * * * * Selectors * * * * * * * * * * * * * * * * //
-
-Foam::autoPtr<Foam::basicThermo> Foam::basicThermo::New
-(
-    const fvMesh& mesh,
-    const word& phaseName
-)
+    Cv_
+    (
+        IOobject
+        (
+            BasicThermoType::phasePropertyName("Cv", phaseName),
+            mesh.time().name(),
+            mesh
+        ),
+        mesh,
+        dimensionedScalar(dimEnergy/dimMass/dimTemperature, Zero)
+    )
 {
-    return New<basicThermo>(mesh, phaseName);
+    heBoundaryCorrection(he_);
 }
 
 
 // * * * * * * * * * * * * * * * * Destructor  * * * * * * * * * * * * * * * //
 
-Foam::basicThermo::~basicThermo()
-{}
-
-
-Foam::basicThermo::implementation::~implementation()
+template<class MixtureType, class BasicThermoType>
+Foam::BasicThermo<MixtureType, BasicThermoType>::~BasicThermo()
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::basicThermo::validate
-(
-    const string& app,
-    const word& a
-) const
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::W() const
 {
-    if (!(he().name() == phasePropertyName(a)))
-    {
-        FatalErrorInFunction
-            << "Supported energy type is " << phasePropertyName(a)
-            << ", thermodynamics package provides " << he().name()
-            << exit(FatalError);
-    }
-}
-
-
-void Foam::basicThermo::validate
-(
-    const string& app,
-    const word& a,
-    const word& b
-) const
-{
-    if
+    return volScalarFieldProperty
     (
-       !(
-            he().name() == phasePropertyName(a)
-         || he().name() == phasePropertyName(b)
-        )
-    )
+        "W",
+        dimMass/dimMoles,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::W
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::W
+(
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::W,
+        patchi
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+const Foam::volScalarField&
+Foam::BasicThermo<MixtureType, BasicThermoType>::Cpv() const
+{
+    if (MixtureType::thermoType::enthalpy())
     {
-        FatalErrorInFunction
-            << "Supported energy types are " << phasePropertyName(a)
-            << " and " << phasePropertyName(b)
-            << ", thermodynamics package provides " << he().name()
-            << exit(FatalError);
+        return Cp_;
+    }
+    else
+    {
+        return Cv_;
     }
 }
 
 
-Foam::tmp<Foam::volScalarField> Foam::basicThermo::gamma() const
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
+(
+    const volScalarField& p,
+    const volScalarField& T
+) const
 {
-    return volScalarField::New(phasePropertyName("gamma"), Cp()/Cv());
+    return volScalarFieldProperty
+    (
+        "he",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        p,
+        T
+    );
 }
 
 
-Foam::tmp<Foam::scalarField> Foam::basicThermo::gamma
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
+(
+    const volScalarField::Internal& p,
+    const volScalarField::Internal& T
+) const
+{
+    return volInternalScalarFieldProperty
+    (
+        "he",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        p,
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
+(
+    const scalarField& T,
+    const labelList& cells
+) const
+{
+    return cellSetProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        cells,
+        cellSetScalarList(this->p_, cells),
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
 (
     const scalarField& T,
     const label patchi
 ) const
 {
-    return Cp(T, patchi)/Cv(T, patchi);
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        patchi,
+        this->p_.boundaryField()[patchi],
+        T
+    );
 }
 
 
-const Foam::volScalarField& Foam::basicThermo::implementation::T() const
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
+(
+    const volScalarField::Internal& T,
+    const fvSource& model,
+    const volScalarField::Internal& source
+) const
 {
-    return T_;
+    return fieldSourceProperty
+    (
+        "he",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        model,
+        source,
+        this->p_.internalField(),
+        T
+    );
 }
 
 
-Foam::volScalarField& Foam::basicThermo::implementation::T()
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::he
+(
+    const scalarField& T,
+    const fvSource& model,
+    const scalarField& source,
+    const labelUList& cells
+) const
 {
-    return T_;
+    return fieldSourceProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::he,
+        model,
+        source,
+        cells,
+        cellSetScalarList(this->p_, cells),
+        T
+    );
 }
 
 
-const Foam::volScalarField& Foam::basicThermo::implementation::kappa() const
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::hs() const
 {
-    return kappa_;
+    return volScalarFieldProperty
+    (
+        "hs",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::hs,
+        this->p_,
+        this->T_
+    );
 }
 
 
-void Foam::basicThermo::implementation::read(const dictionary&)
-{}
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::hs
+(
+    const volScalarField& p,
+    const volScalarField& T
+) const
+{
+    return volScalarFieldProperty
+    (
+        "hs",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::hs,
+        p,
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::hs
+(
+    const volScalarField::Internal& p,
+    const volScalarField::Internal& T
+) const
+{
+    return volInternalScalarFieldProperty
+    (
+        "hs",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::hs,
+        p,
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::hs
+(
+    const scalarField& T,
+    const labelList& cells
+) const
+{
+    return cellSetProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::hs,
+        cells,
+        cellSetScalarList(this->p_, cells),
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::hs
+(
+    const scalarField& T,
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::hs,
+        patchi,
+        this->p_.boundaryField()[patchi],
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::ha() const
+{
+    return volScalarFieldProperty
+    (
+        "ha",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::ha,
+        this->p_,
+        this->T_
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::ha
+(
+    const volScalarField& p,
+    const volScalarField& T
+) const
+{
+    return volScalarFieldProperty
+    (
+        "ha",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::ha,
+        p,
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField::Internal>
+Foam::BasicThermo<MixtureType, BasicThermoType>::ha
+(
+    const volScalarField::Internal& p,
+    const volScalarField::Internal& T
+) const
+{
+    return volInternalScalarFieldProperty
+    (
+        "ha",
+        dimEnergy/dimMass,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::ha,
+        p,
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::ha
+(
+    const scalarField& T,
+    const labelList& cells
+) const
+{
+    return cellSetProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::ha,
+        cells,
+        cellSetScalarList(this->p_, cells),
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::ha
+(
+    const scalarField& T,
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::ha,
+        patchi,
+        this->p_.boundaryField()[patchi],
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::Cp
+(
+    const scalarField& T,
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::Cp,
+        patchi,
+        this->p_.boundaryField()[patchi],
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::Cv
+(
+    const scalarField& T,
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::Cv,
+        patchi,
+        this->p_.boundaryField()[patchi],
+        T
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::Cpv
+(
+    const scalarField& T,
+    const label patchi
+) const
+{
+    if (MixtureType::thermoType::enthalpy())
+    {
+        return Cp(T, patchi);
+    }
+    else
+    {
+        return Cv(T, patchi);
+    }
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::volScalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::The
+(
+    const volScalarField& h,
+    const volScalarField& p,
+    const volScalarField& T0
+) const
+{
+    return volScalarFieldProperty
+    (
+        "T",
+        dimTemperature,
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::The,
+        h,
+        p,
+        T0
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::The
+(
+    const scalarField& h,
+    const scalarField& T0,
+    const labelList& cells
+) const
+{
+    return cellSetProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::The,
+        cells,
+        h,
+        cellSetScalarList(this->p_, cells),
+        T0
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+Foam::tmp<Foam::scalarField>
+Foam::BasicThermo<MixtureType, BasicThermoType>::The
+(
+    const scalarField& h,
+    const scalarField& T0,
+    const label patchi
+) const
+{
+    return patchFieldProperty
+    (
+        &MixtureType::thermoMixture,
+        &MixtureType::thermoMixtureType::The,
+        patchi,
+        h,
+        this->p_.boundaryField()[patchi],
+        T0
+    );
+}
+
+
+template<class MixtureType, class BasicThermoType>
+bool Foam::BasicThermo<MixtureType, BasicThermoType>::read()
+{
+    if (physicalProperties::read())
+    {
+        MixtureType::read(*this);
+        BasicThermoType::read(*this);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
 
 
 // ************************************************************************* //

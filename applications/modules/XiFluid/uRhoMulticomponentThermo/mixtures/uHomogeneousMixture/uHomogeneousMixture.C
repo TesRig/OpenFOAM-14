@@ -23,32 +23,28 @@ License
 
 \*---------------------------------------------------------------------------*/
 
-#include "uHomogeneousMixture.H"
-
-// * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
-
-namespace Foam
-{
-    defineTypeNameAndDebug(uHomogeneousMixture, 0);
-}
-
+#include "UHomogeneousMixture.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::uHomogeneousMixture::uHomogeneousMixture
+template<class ThermoType>
+Foam::UHomogeneousMixture<ThermoType>::UHomogeneousMixture
 (
     const dictionary& dict
 )
 :
-    Phi_(dict.lookup<scalar>("Phi"))
+    uHomogeneousMixture(dict),
+    reactants_("reactants", dict.subDict("reactants"))
 {}
 
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::uHomogeneousMixture::read(const dictionary& dict)
+template<class ThermoType>
+void Foam::UHomogeneousMixture<ThermoType>::read(const dictionary& dict)
 {
-    Phi_ = dict.lookup<scalar>("Phi");
+    uHomogeneousMixture::read(dict);
+    reactants_ = ThermoType("reactants", dict.subDict("reactants"));
 }
 
 

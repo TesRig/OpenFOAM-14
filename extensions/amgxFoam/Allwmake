@@ -1,0 +1,10 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+[ -n "$AMGX_ROOT" ] || {
+    echo "AMGX_ROOT is not set" >&2
+    exit 2
+}
+
+wmake libso
+
